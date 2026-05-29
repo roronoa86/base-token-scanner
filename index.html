@@ -1,546 +1,488 @@
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  0. CONFIGURATION & CONSTANTS
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Base Forensics Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background-color: #0b0f19;
+      color: #e2e8f0;
+    }
+    .terminal-box {
+      background-color: #111827;
+      border: 1px solid #1f2937;
+      box-shadow: 0 0 20px rgba(0, 255, 0, 0.02);
+    }
+    .step { display: flex; align-items: center; gap: 8px; }
+    .step-ic { font-weight: bold; width: 18px; }
+    .step.running { color: #60a5fa; }
+    .step.done { color: #34d399; }
+    .step.err { color: #f87171; }
+  </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen flex flex-col justify-between">
 
-// ðŸ”‘ ALCHEMY RPC â€” Primary endpoint
-// Fallback ke public Base RPC jika Alchemy gagal
-const ALCHEMY_RPC_URL = 'https://base-mainnet.g.alchemy.com/v2/ZDN_6SV5XelxMRm--dFE3';
+  <main class="max-w-3xl mx-auto w-full space-y-6">
+    <header class="text-center md:text-left space-y-1 border-b border-gray-800 pb-4">
+      <h1 class="text-2xl font-bold text-emerald-400 tracking-wider">⚡ BASE FORENSICS</h1>
+      <p class="text-xs text-gray-400">Pindai Token & Analisis Tingkat Risiko On-Chain Secara Akurat</p>
+    </header>
 
-// Fallback public RPC (no API key needed, rate-limited)
-const PUBLIC_RPC_URL  = 'https://mainnet.base.org';
-const BASE_CHAIN_ID   = '8453';
+    <section class="terminal-box p-4 rounded-lg space-y-3">
+      <label for="addrIn" class="block text-xs font-bold uppercase tracking-wider text-gray-400">Contract Address Token (Base):</label>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input 
+          type="text" 
+          id="addrIn" 
+          placeholder="0x..." 
+          class="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-emerald-400 focus:outline-none focus:border-emerald-500"
+        />
+        <button 
+          id="scanBtn" 
+          onclick="startScan()" 
+          class="bg-emerald-600 hover:bg-emerald-500 text-gray-900 font-bold px-6 py-2 rounded text-sm transition-colors cursor-pointer disabled:opacity-50"
+        >
+          SCAN
+        </button>
+      </div>
+      <div id="errBox" class="bg-red-950/40 border border-red-900 text-red-400 text-xs p-3 rounded hidden"></div>
+    </section>
 
-// Gunakan Alchemy jika tersedia, jika tidak pakai public
-const BASE_RPC = ALCHEMY_RPC_URL.includes('INPUT_ALCHEMY') || !ALCHEMY_RPC_URL
-  ? PUBLIC_RPC_URL
-  : ALCHEMY_RPC_URL;
+    <section id="prog" class="terminal-box p-4 rounded-lg space-y-3 hidden">
+      <h3 class="text-xs font-bold uppercase tracking-wider text-blue-400">⏳ Menjalankan Logika Forensik...</h3>
+      <div id="stepList" class="space-y-2 text-xs md:text-sm"></div>
+    </section>
 
-// RPC timeout (ms)
-const RPC_TIMEOUT = 12000;
+    <section id="results" class="terminal-box p-5 rounded-lg space-y-6 hidden"></section>
+  </main>
 
-// Known pool/infrastructure addresses on Base
-// Ini DIEXCLUDE dari perhitungan konsentrasi holder
-const POOL_ADDRS = new Set([
-  '0x498581ff718922c3f8e6a244956af099b2652b2b', // Uniswap v4 PoolManager
-  '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24', // Uniswap v2 Router
-  '0x2626664c2603336e57b271c5c0b26f421741e481', // Uniswap v3 Router
-  '0x03a520b32c04bf3beef7beb72e919cf822ed34f1', // Aerodrome Router
-  '0x420dd381b31aef6683db6b902084cb0ffece40da', // Aerodrome Factory
-  '0x0000000000000000000000000000000000000000', // Burn address
-  '0x000000000000000000000000000000000000dead', // Dead address
-]);
+  <footer class="text-center text-[10px] text-gray-600 mt-8 pt-4 border-t border-gray-900">
+    Base Forensics Engine v1.0.0 • Alchemy + DexScreener
+  </footer>
 
-// ERC-20 & Clanker v4 Function Selectors (4-byte)
-const SELECTORS = {
-  // â”€â”€ ERC-20 Standard â”€â”€
-  totalSupply:  '0x18160ddd',
-  name:         '0x06fdde03',
-  symbol:       '0x95d89b41',
-  decimals:     '0x313ce567',
-  balanceOf:    '0x70a08231',  // + padAddr(address)
-  owner:        '0x8da5cb5b',
+  <script>
+    // 0. CONFIGURATION & CONSTANTS
+    const ALCHEMY_RPC_URL = 'https://base-mainnet.g.alchemy.com/v2/ZDN_6SV5XelxMRm--dFE3';
+    const PUBLIC_RPC_URL  = 'https://mainnet.base.org';
+    const BASE_CHAIN_ID   = '8453';
 
-  // â”€â”€ Clanker v4 â”€â”€
-  allData:      '0x9a5fecd3',  // returns (originalAdmin, admin, image, metadata, context)
-  isVerified:   '0x893d20e8',  // returns (bool)
-};
+    const BASE_RPC = ALCHEMY_RPC_URL.includes('INPUT_ALCHEMY') || !ALCHEMY_RPC_URL
+      ? PUBLIC_RPC_URL
+      : ALCHEMY_RPC_URL;
 
-// Daftar fungsi berbahaya di ABI â€” jika ada, langsung flag
-const DANGER_FUNCTIONS = [
-  'mint', 'crosschainMint', 'setOwner', 'updateAdmin', 'blacklist',
-  'setFee', 'pause', 'updateImage', 'updateMetadata', 'burn',
-  'freezeAccount', 'setMaxWallet', 'setMaxTx', 'enableTrading',
-  'addBlacklist', 'withdrawToken', 'sweepToken',
-];
+    const RPC_TIMEOUT = 12000;
 
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  0a. GLOBAL STATE
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+    const POOL_ADDRS = new Set([
+      '0x498581ff718922c3f8e6a244956af099b2652b2b',
+      '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24',
+      '0x2626664c2603336e57b271c5c0b26f421741e481',
+      '0x03a520b32c04bf3beef7beb72e919cf822ed34f1',
+      '0x420dd381b31aef6683db6b902084cb0ffece40da',
+      '0x0000000000000000000000000000000000000000',
+      '0x000000000000000000000000000000000000dead',
+    ]);
 
-// Step tracker untuk progress UI
-let stepElements = {};
-
-// Hasil scan terbaru (untuk debugging via console)
-let lastScanResult = null;
-
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  0b. UTILITY FUNCTIONS
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
-
-/**
- * Format angka besar menjadi readable (1.5M, 23K, dsb)
- */
-function fmtNum(n) {
-  if (n === null || n === undefined || isNaN(n)) return '?';
-  if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
-  if (n >= 1e9)  return (n / 1e9).toFixed(2)  + 'B';
-  if (n >= 1e6)  return (n / 1e6).toFixed(2)  + 'M';
-  if (n >= 1e3)  return (n / 1e3).toFixed(1)  + 'K';
-  return Number(n).toFixed(2);
-}
-
-/**
- * Format harga token (USD)
- */
-function fmtPrice(p) {
-  if (!p) return 'N/A';
-  const n = parseFloat(p);
-  if (isNaN(n)) return 'N/A';
-  if (n < 0.000001) return '$' + n.toExponential(4);
-  if (n < 0.01)     return '$' + n.toFixed(8);
-  if (n < 1)        return '$' + n.toFixed(6);
-  return '$' + n.toFixed(4);
-}
-
-/**
- * Format umur pair (relative time, Bahasa Indonesia)
- */
-function fmtAge(timestamp) {
-  const diffMs = Date.now() - timestamp;
-  const mins = Math.floor(diffMs / 60000);
-  const hrs  = Math.floor(diffMs / 3600000);
-  const days = Math.floor(diffMs / 86400000);
-
-  if (mins < 1)   return 'Baru saja';
-  if (mins < 60)  return `${mins} menit lalu`;
-  if (hrs  < 24)  return `${hrs} jam lalu`;
-  if (days < 1)   return 'Hari ini';
-  if (days === 1) return 'Kemarin';
-  if (days < 30)  return `${days} hari lalu`;
-  if (days < 365) return `${Math.floor(days / 30)} bulan lalu`;
-  return `${Math.floor(days / 365)} tahun lalu`;
-}
-
-/**
- * Format total supply dengan decimals
- */
-function fmtSupply(bigIntVal, decimals) {
-  try {
-    const dec = parseInt(decimals) || 18;
-    const divisor = 10n ** BigInt(dec);
-    const whole = bigIntVal / divisor;
-    return fmtNum(Number(whole));
-  } catch {
-    return String(bigIntVal);
-  }
-}
-
-/**
- * Pad alamat untuk ABI encoding (64 hex chars setelah 0x)
- */
-function padAddressToSlot(addr) {
-  const clean = addr.replace('0x', '').toLowerCase();
-  return '0x' + clean.padStart(64, '0');
-}
-
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  0c. ABI DECODERS (pure JS, no library needed)
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
-
-/**
- * Decode ABI-encoded uint256 hex â†’ BigInt
- */
-function decodeUint256(hex) {
-  if (!hex || hex === '0x' || hex === '0x0') return 0n;
-  try { return BigInt(hex); } catch { return 0n; }
-}
-
-/**
- * Decode ABI-encoded address hex â†’ 0x string
- */
-function decodeAddress(hex) {
-  if (!hex || hex.length < 42) return null;
-  return '0x' + hex.slice(-40).toLowerCase();
-}
-
-/**
- * Decode ABI-encoded bool hex â†’ boolean
- */
-function decodeBool(hex) {
-  if (!hex || hex === '0x') return null;
-  const cleaned = hex.replace('0x', '');
-  if (cleaned.length < 64) return false;
-  return cleaned[63] === '1';
-}
-
-/**
- * Decode ABI-encoded dynamic string
- * Handles both: dynamic (offset 0x20) and short (<32 byte) strings
- */
-function decodeString(hex) {
-  try {
-    if (!hex || hex === '0x') return '';
-    const raw = hex.startsWith('0x') ? hex.slice(2) : hex;
-    if (!raw) return '';
-
-    const hexToAscii = (h) => {
-      let str = '';
-      for (let i = 0; i < h.length; i += 2) {
-        const code = parseInt(h.substring(i, i + 2), 16);
-        if (code === 0) continue;
-        str += String.fromCharCode(code);
-      }
-      return str;
+    const SELECTORS = {
+      totalSupply:  '0x18160ddd',
+      name:         '0x06fdde03',
+      symbol:       '0x95d89b41',
+      decimals:     '0x313ce567',
+      balanceOf:    '0x70a08231',
+      owner:        '0x8da5cb5b',
+      allData:      '0x9a5fecd3',
+      isVerified:   '0x893d20e8',
     };
 
-    // Dynamic string: first 32 bytes = offset (0x20)
-    const firstWord = raw.slice(0, 64);
-    if (firstWord === '0000000000000000000000000000000000000000000000000000000000000020') {
-      const len = parseInt(raw.slice(64, 128), 16);
-      if (isNaN(len) || len === 0) return '';
-      return hexToAscii(raw.slice(128, 128 + len * 2));
+    const DANGER_FUNCTIONS = [
+      'mint', 'crosschainMint', 'setOwner', 'updateAdmin', 'blacklist',
+      'setFee', 'pause', 'updateImage', 'updateMetadata', 'burn',
+      'freezeAccount', 'setMaxWallet', 'setMaxTx', 'enableTrading',
+      'addBlacklist', 'withdrawToken', 'sweepToken',
+    ];
+
+    // 0a. GLOBAL STATE
+    let stepElements = {};
+    let lastScanResult = null;
+
+    // 0b. UTILITY FUNCTIONS
+    function fmtNum(n) {
+      if (n === null || n === undefined || isNaN(n)) return '?';
+      if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+      if (n >= 1e9)  return (n / 1e9).toFixed(2)  + 'B';
+      if (n >= 1e6)  return (n / 1e6).toFixed(2)  + 'M';
+      if (n >= 1e3)  return (n / 1e3).toFixed(1)  + 'K';
+      return Number(n).toFixed(2);
     }
 
-    // bytes32 / short string (<32 bytes)
-    const len = parseInt(raw.slice(64, 128), 16);
-    if (!isNaN(len) && len > 0 && len < 32) {
-      return hexToAscii(raw.slice(128, 128 + len * 2));
+    function fmtPrice(p) {
+      if (!p) return 'N/A';
+      const n = parseFloat(p);
+      if (isNaN(n)) return 'N/A';
+      if (n < 0.000001) return '$' + n.toExponential(4);
+      if (n < 0.01)     return '$' + n.toFixed(8);
+      if (n < 1)        return '$' + n.toFixed(6);
+      return '$' + n.toFixed(4);
     }
-    return hexToAscii(raw.slice(0, 64));
-  } catch {
-    return '';
-  }
-}
 
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  1. RPC CALL HELPERS (Alchemy / Public Base)
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+    function fmtAge(timestamp) {
+      const diffMs = Date.now() - timestamp;
+      const mins = Math.floor(diffMs / 60000);
+      const hrs  = Math.floor(diffMs / 3600000);
+      const days = Math.floor(diffMs / 86400000);
 
-/**
- * Single eth_call via JSON-RPC POST
- * Returns hex result atau null jika gagal
- */
-async function rpcCall(contractAddr, data) {
-  try {
-    const body = JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_call',
-      params: [{ to: contractAddr, data }, 'latest'],
-      id: 1,
-    });
+      if (mins < 1)   return 'Baru saja';
+      if (mins < 60)  return `${mins} menit lalu`;
+      if (hrs  < 24)  return `${hrs} jam lalu`;
+      if (days < 1)   return 'Hari ini';
+      if (days === 1) return 'Kemarin';
+      if (days < 30)  return `${days} hari lalu`;
+      return `${Math.floor(days / 30)} bulan lalu`;
+    }
 
-    const res = await fetch(BASE_RPC, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-      signal: AbortSignal.timeout(RPC_TIMEOUT),
-    });
+    function fmtSupply(bigIntVal, decimals) {
+      try {
+        const dec = parseInt(decimals) || 18;
+        const divisor = 10n ** BigInt(dec);
+        const whole = bigIntVal / divisor;
+        return fmtNum(Number(whole));
+      } catch {
+        return String(bigIntVal);
+      }
+    }
 
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (json.error) {
-      console.warn('[RPC] eth_call error:', json.error.message);
+    function padAddressToSlot(addr) {
+      const clean = addr.replace('0x', '').toLowerCase();
+      return '0x' + clean.padStart(64, '0');
+    }
+
+    // 0c. ABI DECODERS
+    function decodeUint256(hex) {
+      if (!hex || hex === '0x' || hex === '0x0') return 0n;
+      try { return BigInt(hex); } catch { return 0n; }
+    }
+
+    function decodeAddress(hex) {
+      if (!hex || hex.length < 42) return null;
+      return '0x' + hex.slice(-40).toLowerCase();
+    }
+
+    function decodeBool(hex) {
+      if (!hex || hex === '0x') return null;
+      const cleaned = hex.replace('0x', '');
+      if (cleaned.length < 64) return false;
+      return cleaned[63] === '1';
+    }
+
+    function decodeString(hex) {
+      try {
+        if (!hex || hex === '0x') return '';
+        const raw = hex.startsWith('0x') ? hex.slice(2) : hex;
+        if (!raw) return '';
+
+        const hexToAscii = (h) => {
+          let str = '';
+          for (let i = 0; i < h.length; i += 2) {
+            const code = parseInt(h.substring(i, i + 2), 16);
+            if (code === 0) continue;
+            str += String.fromCharCode(code);
+          }
+          return str;
+        };
+
+        const firstWord = raw.slice(0, 64);
+        if (firstWord === '0000000000000000000000000000000000000000000000000000000000000020') {
+          const len = parseInt(raw.slice(64, 128), 16);
+          if (isNaN(len) || len === 0) return '';
+          return hexToAscii(raw.slice(128, 128 + len * 2));
+        }
+
+        const len = parseInt(raw.slice(64, 128), 16);
+        if (!isNaN(len) && len > 0 && len < 32) {
+          return hexToAscii(raw.slice(128, 128 + len * 2));
+        }
+        return hexToAscii(raw.slice(0, 64));
+      } catch {
+        return '';
+      }
+    }
+
+    // 1. RPC CALL HELPERS
+    async function rpcCall(contractAddr, data) {
+      try {
+        const body = JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_call',
+          params: [{ to: contractAddr, data }, 'latest'],
+          id: 1,
+        });
+        const res = await fetch(BASE_RPC, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(RPC_TIMEOUT),
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        if (json.error) return null;
+        return json.result || null;
+      } catch { return null; }
+    }
+
+    async function rpcBatch(calls) {
+      try {
+        const body = JSON.stringify(
+          calls.map((c, i) => ({
+            jsonrpc: '2.0',
+            method: 'eth_call',
+            params: [{ to: c.to, data: c.data }, 'latest'],
+            id: i + 1,
+          }))
+        );
+        const res = await fetch(BASE_RPC, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(RPC_TIMEOUT + 3000),
+        });
+        if (!res.ok) return calls.map(() => null);
+        const results = await res.json();
+        return results.map((r) => (r && r.result ? r.result : null));
+      } catch { return calls.map(() => null); }
+    }
+
+    async function readTokenBasics(contractAddr) {
+      const calls = [
+        { to: contractAddr, data: SELECTORS.totalSupply },
+        { to: contractAddr, data: SELECTORS.owner },
+        { to: contractAddr, data: SELECTORS.isVerified },
+        { to: contractAddr, data: SELECTORS.decimals },
+        { to: contractAddr, data: SELECTORS.name },
+        { to: contractAddr, data: SELECTORS.symbol },
+        { to: contractAddr, data: SELECTORS.allData },
+      ];
+      const [supplyHex, ownerHex, verifiedHex, decimalsHex, nameHex, symbolHex, allDataHex] = await rpcBatch(calls);
+      return {
+        totalSupply: decodeUint256(supplyHex),
+        owner:       decodeAddress(ownerHex),
+        isVerified:  decodeBool(verifiedHex),
+        decimals:    decimalsHex ? parseInt(decimalsHex, 16) : 18,
+        name:        decodeString(nameHex),
+        symbol:      decodeString(symbolHex),
+        allDataHex:  allDataHex,
+      };
+    }
+
+    // 2. DEXSCREENER API
+    async function fetchDexScreener(contractAddr) {
+      const url = `https://api.dexscreener.com/latest/dex/tokens/${contractAddr}`;
+      try {
+        const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return null;
+        const json = await res.json();
+        const pairs = json?.pairs || [];
+        const basePairs = pairs.filter((p) => p.chainId === 'base' || p.chainId === '8453');
+        return basePairs.length > 0 ? basePairs : null;
+      } catch { return null; }
+    }
+
+    // 3. CORS PROXY HELPERS
+    async function fetchWithProxy(url) {
+      try {
+        const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(7000) });
+        if (r.ok) return await r.json();
+      } catch (_) {}
+      try {
+        const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        const r = await fetch(proxy, { signal: AbortSignal.timeout(9000) });
+        if (r.ok) { const d = await r.json(); if (d.contents) return JSON.parse(d.contents); }
+      } catch (_) {}
       return null;
     }
-    return json.result || null;
-  } catch (err) {
-    console.warn('[RPC] eth_call failed:', err.message);
-    return null;
-  }
-}
 
-/**
- * Batch eth_call via JSON-RPC (multiple calls in one request)
- * Returns array of results (null untuk tiap yang gagal)
- */
-async function rpcBatch(calls) {
-  try {
-    const body = JSON.stringify(
-      calls.map((c, i) => ({
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [{ to: c.to, data: c.data }, 'latest'],
-        id: i + 1,
-      }))
-    );
-
-    const res = await fetch(BASE_RPC, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-      signal: AbortSignal.timeout(RPC_TIMEOUT + 3000),
-    });
-
-    if (!res.ok) return calls.map(() => null);
-    const results = await res.json();
-    return results.map((r) => (r && r.result ? r.result : null));
-  } catch (err) {
-    console.warn('[RPC] batch failed:', err.message);
-    return calls.map(() => null);
-  }
-}
-
-/**
- * Baca balance token untuk satu wallet
- * Menggunakan eth_call balanceOf(address)
- */
-async function readTokenBalance(tokenAddr, walletAddr) {
-  const data = SELECTORS.balanceOf + padAddressToSlot(walletAddr).slice(2);
-  const result = await rpcCall(tokenAddr, data);
-  return decodeUint256(result);
-}
-
-/**
- * Baca semua data dasar token via batch RPC
- * Returns: { totalSupply, owner, isVerified, decimals, name, symbol, allData }
- */
-async function readTokenBasics(contractAddr) {
-  const calls = [
-    { to: contractAddr, data: SELECTORS.totalSupply },
-    { to: contractAddr, data: SELECTORS.owner },
-    { to: contractAddr, data: SELECTORS.isVerified },
-    { to: contractAddr, data: SELECTORS.decimals },
-    { to: contractAddr, data: SELECTORS.name },
-    { to: contractAddr, data: SELECTORS.symbol },
-    { to: contractAddr, data: SELECTORS.allData },
-  ];
-
-  const [supplyHex, ownerHex, verifiedHex, decimalsHex, nameHex, symbolHex, allDataHex] =
-    await rpcBatch(calls);
-
-  return {
-    totalSupply: decodeUint256(supplyHex),
-    owner:       decodeAddress(ownerHex),
-    isVerified:  decodeBool(verifiedHex),
-    decimals:    decimalsHex ? parseInt(decimalsHex, 16) : 18,
-    name:        decodeString(nameHex),
-    symbol:      decodeString(symbolHex),
-    allDataHex:  allDataHex,
-  };
-}
-
-/**
- * Parse Clanker v4 allData() return value
- * ABI: (address originalAdmin, address admin, string image, string metadata, string context)
- */
-function parseAllData(hex) {
-  if (!hex || hex === '0x' || hex.length < 320) return null;
-
-  try {
-    const raw = hex.startsWith('0x') ? hex.slice(2) : hex;
-
-    // Static slots: originalAdmin (0), admin (1), image offset (2), metadata offset (3), context offset (4)
-    const originalAdmin = '0x' + raw.slice(24, 64).toLowerCase();
-    const admin         = '0x' + raw.slice(88, 128).toLowerCase();
-
-    // Offset decoding
-    const imgOff  = parseInt(raw.slice(128, 192), 16) * 2;
-    const metaOff = parseInt(raw.slice(192, 256), 16) * 2;
-    const ctxOff  = parseInt(raw.slice(256, 320), 16) * 2;
-
-    const readDynamic = (offset) => {
-      if (offset >= raw.length) return '';
-      const len = parseInt(raw.slice(offset, offset + 64), 16);
-      if (isNaN(len) || len === 0) return '';
-      const strHex = raw.slice(offset + 64, offset + 64 + len * 2);
-      let str = '';
-      for (let i = 0; i < strHex.length; i += 2) {
-        const code = parseInt(strHex.substr(i, 2), 16);
-        if (code > 0) str += String.fromCharCode(code);
-      }
-      try { return decodeURIComponent(str.replace(/../g, (m) => '%' + m)); } catch { return str; }
-    };
-
-    return {
-      originalAdmin: originalAdmin,
-      admin:         admin,
-      image:         readDynamic(imgOff),
-      metadata:      readDynamic(metaOff),
-      context:       readDynamic(ctxOff),
-    };
-  } catch (err) {
-    console.warn('[allData] parse error:', err.message);
-    return null;
-  }
-}
-
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  2. DEXSCREENER API
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
-
-/**
- * Fetch DexScreener pairs untuk token address
- * Returns array of pairs (filtered: hanya Base chain), atau null
- */
-async function fetchDexScreener(contractAddr) {
-  const url = `https://api.dexscreener.com/latest/dex/tokens/${contractAddr}`;
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const pairs = json?.pairs || [];
-    // Filter: hanya Base chain
-    const basePairs = pairs.filter(
-      (p) => p.chainId === 'base' || p.chainId === '8453'
-    );
-    return basePairs.length > 0 ? basePairs : null;
-  } catch (err) {
-    console.warn('[DexScreener] fetch failed:', err.message);
-    return null;
-  }
-}
-
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  3. CORS PROXY HELPERS (untuk API yang kena CORS)
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
-
-/**
- * Multi-proxy fallback fetcher
- * Mencoba 4 strategi:
- *   1. Direct fetch
- *   2. allorigins proxy
- *   3. corsproxy.io
- *   4. codeberg proxy
- */
-async function fetchWithProxy(url) {
-  // Strategy 1: Direct
-  try {
-    const r = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(7000),
-    });
-    if (r.ok) return await r.json();
-  } catch (_) { /* lanjut */ }
-
-  // Strategy 2: allorigins
-  try {
-    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-    const r = await fetch(proxy, { signal: AbortSignal.timeout(9000) });
-    if (r.ok) {
-      const d = await r.json();
-      if (d.contents) return JSON.parse(d.contents);
+    // 5. BLOCKSCOUT API
+    async function fetchBlockscoutHolders(addr) {
+      const data = await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=20`);
+      if (data?.items?.length > 0) return data.items;
+      return null;
     }
-  } catch (_) { /* lanjut */ }
 
-  // Strategy 3: corsproxy.io
-  try {
-    const proxy = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-    const r = await fetch(proxy, { signal: AbortSignal.timeout(9000) });
-    if (r.ok) return await r.json();
-  } catch (_) { /* lanjut */ }
+    // 6. PROGRESS UI STEP MANAGER
+    function addStepUI(id, label) {
+      const list = document.getElementById('stepList');
+      const div = document.createElement('div');
+      div.className = 'step';
+      div.id = 's_' + id;
+      div.innerHTML = `<div class="step-ic">○</div><span>${label}</span>`;
+      list.appendChild(div);
+      stepElements[id] = div;
+    }
 
-  // Strategy 4: codeberg
-  try {
-    const proxy = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-    const r = await fetch(proxy, { signal: AbortSignal.timeout(9000) });
-    if (r.ok) return await r.json();
-  } catch (_) { /* gagal total */ }
+    function setStepUI(id, state, detailText) {
+      const el = stepElements[id];
+      if (!el) return;
+      el.className = 'step ' + state;
+      const iconMap = { running: '⚡', done: '✓', err: '✕' };
+      el.querySelector('.step-ic').textContent = iconMap[state] || '○';
+      if (detailText) {
+        const span = el.querySelector('span');
+        const base = span.textContent.split(' — ')[0];
+        span.textContent = base + ' — ' + detailText;
+      }
+    }
 
-  return null;
-}
+    function showErrorBox(msg) {
+      const el = document.getElementById('errBox');
+      el.innerHTML = '⚠ ' + msg;
+      el.style.display = 'block';
+      document.getElementById('prog').style.display = 'none';
+      document.getElementById('scanBtn').disabled = false;
+    }
 
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  4. GOPLUS SECURITY API
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+    // 7. MAIN SCAN ENTRY POINT
+    async function startScan() {
+      const raw = document.getElementById('addrIn').value.trim();
+      if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
+        showErrorBox('Format alamat salah! Wajib: 0x + 40 karakter hex.');
+        return;
+      }
+      const CONTRACT = raw.toLowerCase();
 
-async function fetchGoPlus(contractAddr) {
-  const url = `https://api.gopluslabs.io/api/v1/token_security/${BASE_CHAIN_ID}?contract_addresses=${contractAddr}`;
-  const data = await fetchWithProxy(url);
-  if (!data || data.code !== 1) return null;
-  const lower = contractAddr.toLowerCase();
-  return data.result?.[lower] || data.result?.[contractAddr] || null;
-}
+      // UI Reset
+      document.getElementById('errBox').style.display    = 'none';
+      document.getElementById('results').style.display   = 'none';
+      document.getElementById('results').innerHTML       = '';
+      document.getElementById('prog').style.display      = 'block';
+      document.getElementById('stepList').innerHTML      = '';
+      document.getElementById('scanBtn').disabled        = true;
+      stepElements = {};
 
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  5. BLOCKSCOUT API (Base Explorer)
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+      // Init Pipeline Steps
+      addStepUI('basics', 'Membaca RPC Dasar Kontrak');
+      addStepUI('dex', 'Memeriksa Data Pasar DexScreener');
+      addStepUI('holders', 'Menganalisis Konsentrasi Top Holders');
 
-async function fetchBlockscoutToken(addr) {
-  return await fetchWithProxy(
-    `https://base.blockscout.com/api/v2/tokens/${addr}`
-  );
-}
+      // Step 1: Basics
+      setStepUI('basics', 'running');
+      const basics = await readTokenBasics(CONTRACT);
+      if (!basics.name && !basics.symbol) {
+        setStepUI('basics', 'err', 'Gagal memuat metadata standar.');
+        showErrorBox('Kontrak tidak mengembalikan identitas ERC-20 yang valid. Periksa kembali jaringan/address.');
+        return;
+      }
+      setStepUI('basics', 'done', `${basics.name} (${basics.symbol})`);
 
-async function fetchBlockscoutHolders(addr) {
-  // Try v2 API dulu
-  const data = await fetchWithProxy(
-    `https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=20`
-  );
-  if (data?.items?.length > 0) return data.items;
+      // Step 2: DexScreener
+      setStepUI('dex', 'running');
+      const pairs = await fetchDexScreener(CONTRACT);
+      let mainPair = null;
+      if (pairs && pairs.length > 0) {
+        mainPair = pairs[0];
+        setStepUI('dex', 'done', `Liquid: $${fmtNum(mainPair.liquidity?.usd)}`);
+      } else {
+        setStepUI('dex', 'err', 'Pair perdagangan tidak ditemukan di Base.');
+      }
 
-  // Fallback: v1 API
-  const v1 = await fetchWithProxy(
-    `https://base.blockscout.com/api?module=token&action=getTokenHolders&contractaddress=${addr}&page=1&offset=20`
-  );
-  if (v1?.result?.length > 0) {
-    return v1.result.map((h) => ({
-      address: { hash: h.address, is_contract: false },
-      value: h.value,
-    }));
-  }
-  return null;
-}
+      // Step 3: Holders
+      setStepUI('holders', 'running');
+      const holdersData = await fetchBlockscoutHolders(CONTRACT);
+      let topHoldersPercent = 0;
+      let calculatedFlag = 'LOW';
+      let dangerMessages = [];
 
-async function fetchBlockscoutContract(addr) {
-  return await fetchWithProxy(
-    `https://base.blockscout.com/api/v2/smart-contracts/${addr}`
-  );
-}
+      if (holdersData) {
+        let excludedCount = 0;
+        let cumulativeBalance = 0n;
 
-async function fetchBlockscoutAddress(addr) {
-  return await fetchWithProxy(
-    `https://base.blockscout.com/api/v2/addresses/${addr}`
-  );
-}
+        // Loop top 10 holders valid di luar liquidity pool
+        holdersData.forEach(h => {
+          const hAddr = h.address?.hash?.toLowerCase();
+          if (POOL_ADDRS.has(hAddr) || h.address?.is_contract) {
+            excludedCount++;
+          } else if (cumulativeBalance < 10n && h.value) {
+            cumulativeBalance += BigInt(h.value);
+          }
+        });
 
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  6. PROGRESS UI STEP MANAGER
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+        if (basics.totalSupply > 0n) {
+          topHoldersPercent = Number((cumulativeBalance * 10000n) / basics.totalSupply) / 100;
+        }
+        setStepUI('holders', 'done', `Top Holders menguasai ${topHoldersPercent}%`);
+      } else {
+        setStepUI('holders', 'err', 'Gagal menarik data via indexer explorer.');
+      }
 
-function addStepUI(id, label) {
-  const list = document.getElementById('stepList');
-  const div = document.createElement('div');
-  div.className = 'step';
-  div.id = 's_' + id;
-  div.innerHTML = `<div class="step-ic">â—‹</div><span>${label}</span>`;
-  list.appendChild(div);
-  stepElements[id] = div;
-}
+      // 8. LOGIKA PENILAIAN RISIKO (FORENSIK ENGINE)
+      const liqUSD = mainPair?.liquidity?.usd ? parseFloat(mainPair.liquidity.usd) : 0;
+      
+      if (liqUSD > 0 && liqUSD < 3000) {
+        calculatedFlag = 'EXTREME';
+        dangerMessages.push('Likuiditas pasar di bawah batas aman $3,000 USD (Sangat rawan rugpull).');
+      }
+      if (topHoldersPercent > 15) {
+        calculatedFlag = (calculatedFlag === 'EXTREME') ? 'EXTREME' : 'HIGH';
+        dangerMessages.push(`Konsentrasi holder tinggi! Top Wallet menguasai ${topHoldersPercent}% supply.`);
+      }
+      if (!mainPair) {
+        calculatedFlag = 'HIGH';
+        dangerMessages.push('Belum memiliki Liquidity Pool resmi yang terindeks di pasar.');
+      }
 
-function setStepUI(id, state, detailText) {
-  const el = stepElements[id];
-  if (!el) return;
-  el.className = 'step ' + state;
-  const iconMap = { running: 'â†»', done: 'âœ“', err: 'âœ•' };
-  el.querySelector('.step-ic').textContent = iconMap[state] || 'â—‹';
-  if (detailText) {
-    const span = el.querySelector('span');
-    const base = span.textContent.split(' â€” ')[0];
-    span.textContent = base + ' â€” ' + detailText;
-  }
-}
+      // Render Hasil Akhir ke UI
+      document.getElementById('prog').style.display = 'none';
+      const resultsEl = document.getElementById('results');
+      resultsEl.style.display = 'block';
+      document.getElementById('scanBtn').disabled = false;
 
-function showErrorBox(msg) {
-  const el = document.getElementById('errBox');
-  el.innerHTML = 'âš  ' + msg;
-  el.style.display = 'block';
-  document.getElementById('prog').style.display = 'none';
-  document.getElementById('scanBtn').disabled = false;
-}
+      let badgeColor = 'text-green-400 bg-green-950/40 border-green-800';
+      if (calculatedFlag === 'MEDIUM') badgeColor = 'text-yellow-400 bg-yellow-950/40 border-yellow-800';
+      if (calculatedFlag === 'HIGH') badgeColor = 'text-orange-400 bg-orange-950/40 border-orange-800';
+      if (calculatedFlag === 'EXTREME') badgeColor = 'text-red-400 bg-red-950/40 border-red-800';
 
-/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  7. MAIN SCAN ENTRY POINT
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+      resultsEl.innerHTML = `
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-gray-800 pb-4 gap-3">
+          <div>
+            <h2 class="text-xl font-bold text-white">${basics.name} <span class="text-gray-500 font-normal">(${basics.symbol})</span></h2>
+            <p class="text-[11px] text-gray-500 break-all mt-1">${CONTRACT}</p>
+          </div>
+          <div class="px-3 py-1 rounded border text-xs font-bold tracking-widest uppercase ${badgeColor}">
+            RISIKO: ${calculatedFlag}
+          </div>
+        </div>
 
-async function startScan() {
-  // â”€â”€ Validasi input â”€â”€
-  const raw = document.getElementById('addrIn').value.trim();
-  if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
-    showErrorBox('Format alamat tidak valid. Harus: 0x + 40 karakter hex.');
-    return;
-  }
-  const CONTRACT = raw.toLowerCase();
+        <div class="grid grid-cols-2 gap-4 text-xs">
+          <div class="bg-gray-900/50 p-3 rounded border border-gray-800 space-y-1">
+            <span class="text-gray-500 block uppercase font-bold tracking-wider text-[10px]">Total Supply</span>
+            <span class="text-sm font-bold text-gray-300">${fmtSupply(basics.totalSupply, basics.decimals)}</span>
+          </div>
+          <div class="bg-gray-900/50 p-3 rounded border border-gray-800 space-y-1">
+            <span class="text-gray-500 block uppercase font-bold tracking-wider text-[10px]">Harga (USD)</span>
+            <span class="text-sm font-bold text-emerald-400">${fmtPrice(mainPair?.priceUsd)}</span>
+          </div>
+          <div class="bg-gray-900/50 p-3 rounded border border-gray-800 space-y-1">
+            <span class="text-gray-500 block uppercase font-bold tracking-wider text-[10px]">Total Liquidity</span>
+            <span class="text-sm font-bold text-gray-300">${mainPair ? '$' + fmtNum(liqUSD) : 'N/A'}</span>
+          </div>
+          <div class="bg-gray-900/50 p-3 rounded border border-gray-800 space-y-1">
+            <span class="text-gray-500 block uppercase font-bold tracking-wider text-[10px]">Umur Kontrak</span>
+            <span class="text-sm font-bold text-gray-300">${mainPair?.pairCreatedAt ? fmtAge(mainPair.pairCreatedAt) : 'N/A'}</span>
+          </div>
+        </div>
 
-  // â”€â”€ Reset UI â”€â”€
-  document.getElementById('errBox').style.display    = 'none';
-  document.getElementById('results').style.display   = 'none';
-  document.getElementById('results').innerHTML       = '';
-  document.getElementById('prog').style.display      = 'block';
-  document.getElementById('stepList').innerHTML      = '';
-  document.getElementById('scanBtn').disabled        = true;
-  stepElements = {};
-
-  // â”€â”€
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">📋 Ringkasan Analisis Keamanan:</h4>
+          ${dangerMessages.length === 0 
+            ? `<p class="text-emerald-400 text-xs bg-emerald-950/20 border border-emerald-900 p-3 rounded">✓ Tidak ditemukan red-flag fatal. Token memenuhi standar parameter dasar investigasi.</p>`
+            : `<ul class="space-y-1.5">
+                ${dangerMessages.map(msg => `<li class="text-red-400 text-xs bg-red-950/20 border border-red-950 p-2 rounded flex items-start gap-2"><span>⚠️</span> <span>${msg}</span></li>`).join('')}
+               </ul>`
+          }
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
