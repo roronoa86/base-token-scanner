@@ -1,35 +1,3 @@
-<!--
-â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
-â•‘  BASE FORENSICS SCANNER v5 â€” Full Logic JavaScript          â•‘
-â•‘  Plug-and-play: replace your existing <script> block        â•‘
-â•‘  Author: Restu Pambudi + bot2                               â•‘
-â•‘  Date:   2026-05-29                                         â•‘
-â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
-  INSTRUCTIONS:
-  1. Replace your ENTIRE <script>...</script> block with this.
-  2. Set your Alchemy RPC URL below (line ~40).
-  3. The HTML/CSS structure remains unchanged.
-  4. All DOM element IDs are preserved for compatibility.
-
-  ARCHITECTURE:
-  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-  â”‚  startScan() â€” entry point, validates input             â”‚
-  â”‚    â”œâ”€ Step â‘  Alchemy RPC (totalSupply, name, symbol,   â”‚
-  â”‚    â”‚     owner, decimals, isVerified, allData)          â”‚
-  â”‚    â”œâ”€ Step â‘¡ DexScreener API (liquidity, volume, age)  â”‚
-  â”‚    â”œâ”€ Step â‘¢ GoPlus Security (honeypot, mint, tax)     â”‚
-  â”‚    â”œâ”€ Step â‘£ Blockscout Token Info (holders, verified) â”‚
-  â”‚    â”œâ”€ Step â‘¤ Top Holders Distribution                  â”‚
-  â”‚    â”œâ”€ Step â‘¥ Contract ABI Analysis                     â”‚
-  â”‚    â”œâ”€ Step â‘¦ Deployer Wallet Forensics                 â”‚
-  â”‚    â””â”€ Step â‘§ Risk Scoring Engine (BANKR SKILL LOGIC)   â”‚
-  â”‚         â”œâ”€ computeScore() â€” weighted flag system       â”‚
-  â”‚         â””â”€ renderResults() â€” dynamic DOM rendering     â”‚
-  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
--->
-
-<script>
 /*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   0. CONFIGURATION & CONSTANTS
   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
@@ -520,4 +488,59 @@ async function fetchBlockscoutAddress(addr) {
 
 /*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   6. PROGRESS UI STEP MANAGER
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+
+function addStepUI(id, label) {
+  const list = document.getElementById('stepList');
+  const div = document.createElement('div');
+  div.className = 'step';
+  div.id = 's_' + id;
+  div.innerHTML = `<div class="step-ic">â—‹</div><span>${label}</span>`;
+  list.appendChild(div);
+  stepElements[id] = div;
+}
+
+function setStepUI(id, state, detailText) {
+  const el = stepElements[id];
+  if (!el) return;
+  el.className = 'step ' + state;
+  const iconMap = { running: 'â†»', done: 'âœ“', err: 'âœ•' };
+  el.querySelector('.step-ic').textContent = iconMap[state] || 'â—‹';
+  if (detailText) {
+    const span = el.querySelector('span');
+    const base = span.textContent.split(' â€” ')[0];
+    span.textContent = base + ' â€” ' + detailText;
+  }
+}
+
+function showErrorBox(msg) {
+  const el = document.getElementById('errBox');
+  el.innerHTML = 'âš  ' + msg;
+  el.style.display = 'block';
+  document.getElementById('prog').style.display = 'none';
+  document.getElementById('scanBtn').disabled = false;
+}
+
+/*â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  7. MAIN SCAN ENTRY POINT
+  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•*/
+
+async function startScan() {
+  // â”€â”€ Validasi input â”€â”€
+  const raw = document.getElementById('addrIn').value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
+    showErrorBox('Format alamat tidak valid. Harus: 0x + 40 karakter hex.');
+    return;
+  }
+  const CONTRACT = raw.toLowerCase();
+
+  // â”€â”€ Reset UI â”€â”€
+  document.getElementById('errBox').style.display    = 'none';
+  document.getElementById('results').style.display   = 'none';
+  document.getElementById('results').innerHTML       = '';
+  document.getElementById('prog').style.display      = 'block';
+  document.getElementById('stepList').innerHTML      = '';
+  document.getElementById('scanBtn').disabled        = true;
+  stepElements = {};
+
+  // â”€â”€
