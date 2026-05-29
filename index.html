@@ -1,435 +1,813 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>Base Token Scanner Pro | Clanker v4 & ERC-20 Security Analyzer</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Base Token Scanner Pro</title>
 
-    body {
-      background: linear-gradient(145deg, #0a0c12 0%, #0f111a 100%);
-      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, monospace;
-      padding: 24px 20px;
-      color: #eef2ff;
-    }
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:Inter,Arial,sans-serif;
+}
 
-    .container {
-      max-width: 1300px;
-      margin: 0 auto;
-    }
+body{
+  background:
+  radial-gradient(circle at top left,#172554 0%,#020617 45%,#000 100%);
+  min-height:100vh;
+  color:white;
+  padding:24px;
+}
 
-    /* header */
-    .header {
-      text-align: center;
-      margin-bottom: 28px;
-    }
-    .badge {
-      background: #1e293b;
-      display: inline-block;
-      padding: 6px 14px;
-      border-radius: 40px;
-      font-size: 0.8rem;
-      font-weight: 500;
-      letter-spacing: 0.3px;
-      backdrop-filter: blur(4px);
-      border: 1px solid #334155;
-      margin-bottom: 16px;
-    }
-    h1 {
-      font-size: 2rem;
-      font-weight: 700;
-      background: linear-gradient(135deg, #c084fc, #60a5fa);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      letter-spacing: -0.3px;
-    }
-    .sub {
-      color: #94a3b8;
-      margin-top: 8px;
-      font-size: 0.9rem;
-    }
+.wrap{
+  max-width:1400px;
+  margin:auto;
+}
 
-    /* card */
-    .card {
-      background: rgba(18, 22, 35, 0.85);
-      backdrop-filter: blur(8px);
-      border-radius: 36px;
-      border: 1px solid #2d3a5e;
-      box-shadow: 0 20px 35px -12px rgba(0,0,0,0.5);
-      overflow: hidden;
-      margin-bottom: 28px;
-    }
-    .card-body {
-      padding: 24px 28px;
-    }
+.hero{
+  margin-bottom:28px;
+}
 
-    /* input group */
-    .input-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-      margin-bottom: 20px;
-    }
-    .input-group input {
-      flex: 4;
-      min-width: 240px;
-      background: #0b0e17;
-      border: 1.5px solid #2d3a5e;
-      padding: 14px 18px;
-      border-radius: 60px;
-      color: white;
-      font-size: 1rem;
-      font-family: monospace;
-      transition: 0.2s;
-    }
-    .input-group input:focus {
-      outline: none;
-      border-color: #8b5cf6;
-      box-shadow: 0 0 0 3px rgba(139,92,246,0.3);
-    }
-    .input-group button {
-      background: linear-gradient(100deg, #7c3aed, #a855f7);
-      border: none;
-      padding: 0 28px;
-      border-radius: 60px;
-      font-weight: 700;
-      font-size: 1rem;
-      color: white;
-      cursor: pointer;
-      transition: 0.2s;
-      box-shadow: 0 4px 12px rgba(124,58,237,0.3);
-    }
-    .input-group button:hover {
-      transform: scale(0.97);
-      background: linear-gradient(100deg, #6d28d9, #9333ea);
-    }
-    .input-group button:disabled {
-      opacity: 0.5;
-      transform: none;
-      cursor: not-allowed;
-    }
+.hero h1{
+  font-size:48px;
+  font-weight:900;
+  letter-spacing:-2px;
+  margin-bottom:10px;
+}
 
-    /* progress steps */
-    .progress-steps {
-      background: #0f1222;
-      border-radius: 28px;
-      padding: 8px 16px;
-      margin-top: 10px;
-    }
-    .step {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 12px;
-      border-bottom: 1px solid #1e293b;
-      font-size: 0.9rem;
-      font-weight: 500;
-    }
-    .step:last-child {
-      border-bottom: none;
-    }
-    .step-ic {
-      width: 26px;
-      text-align: center;
-      font-weight: bold;
-    }
-    .step.running { color: #facc15; }
-    .step.done { color: #4ade80; }
-    .step.err { color: #f87171; }
+.hero p{
+  color:#94a3b8;
+}
 
-    /* hasil utama */
-    .result-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 24px;
-      margin-top: 10px;
-    }
-    .col {
-      flex: 1;
-      min-width: 260px;
-    }
-    .info-panel {
-      background: #0b0f1a;
-      border-radius: 28px;
-      padding: 18px 20px;
-      border: 1px solid #2a374e;
-    }
-    .info-panel h3 {
-      font-size: 1.2rem;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      border-left: 4px solid #a855f7;
-      padding-left: 14px;
-    }
-    .metric {
-      margin: 12px 0;
-      display: flex;
-      justify-content: space-between;
-      border-bottom: 1px dashed #1f2a3e;
-      padding: 8px 0;
-    }
-    .metric-label {
-      font-weight: 500;
-      color: #9ca3af;
-    }
-    .metric-value {
-      font-family: monospace;
-      font-weight: 600;
-      word-break: break-all;
-      text-align: right;
-    }
-    .danger {
-      color: #ff8a7a;
-      background: #3b1e1a;
-      padding: 6px 12px;
-      border-radius: 40px;
-      font-size: 0.8rem;
-    }
-    .warning {
-      color: #fbbf24;
-    }
-    .safe {
-      color: #4ade80;
-    }
-    .holders-list {
-      max-height: 300px;
-      overflow-y: auto;
-      font-size: 0.8rem;
-    }
-    .holder-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 6px 0;
-      border-bottom: 1px solid #1e2a3a;
-    }
-    .addr-short {
-      font-family: monospace;
-    }
-    hr {
-      border-color: #2a374e;
-      margin: 16px 0;
-    }
-    .footer-note {
-      font-size: 0.7rem;
-      text-align: center;
-      color: #5b6e8c;
-      margin-top: 20px;
-    }
-    button.link {
-      background: none;
-      border: none;
-      color: #94a3f5;
-      cursor: pointer;
-      text-decoration: underline;
-      font-size: 0.7rem;
-    }
-    .tag {
-      background: #1e293b;
-      border-radius: 20px;
-      padding: 2px 10px;
-      font-size: 0.7rem;
-    }
-  </style>
+.glass{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(20px);
+  border-radius:28px;
+  box-shadow:
+  0 10px 40px rgba(0,0,0,.45),
+  inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+.scan-box{
+  padding:24px;
+  margin-bottom:24px;
+}
+
+.input-row{
+  display:flex;
+  gap:14px;
+  flex-wrap:wrap;
+}
+
+input{
+  flex:1;
+  min-width:280px;
+  height:64px;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.04);
+  color:white;
+  padding:0 20px;
+  font-size:16px;
+  outline:none;
+}
+
+input:focus{
+  border-color:#3b82f6;
+  box-shadow:0 0 0 4px rgba(59,130,246,.15);
+}
+
+button{
+  height:64px;
+  padding:0 34px;
+  border:none;
+  border-radius:20px;
+  background:linear-gradient(135deg,#2563eb,#1d4ed8);
+  color:white;
+  font-weight:800;
+  font-size:16px;
+  cursor:pointer;
+  transition:.2s;
+}
+
+button:hover{
+  transform:translateY(-2px);
+}
+
+button:disabled{
+  opacity:.6;
+}
+
+.err{
+  margin-top:18px;
+  padding:16px;
+  border-radius:18px;
+  background:rgba(239,68,68,.15);
+  border:1px solid rgba(239,68,68,.3);
+  display:none;
+}
+
+.progress{
+  padding:24px;
+  display:none;
+  margin-bottom:24px;
+}
+
+.step-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.step{
+  padding:16px;
+  border-radius:18px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.06);
+}
+
+.step.running{border-color:#3b82f6;}
+.step.done{border-color:#10b981;}
+.step.err{border-color:#ef4444;}
+
+.step-ic{
+  width:36px;
+  height:36px;
+  border-radius:12px;
+  background:rgba(255,255,255,.08);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+}
+
+.results{
+  display:none;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:18px;
+}
+
+.card{
+  padding:24px;
+  position:relative;
+  overflow:hidden;
+}
+
+.card::before{
+  content:'';
+  position:absolute;
+  top:0;
+  left:0;
+  width:100%;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);
+}
+
+.label{
+  color:#94a3b8;
+  font-size:13px;
+  margin-bottom:12px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+
+.value{
+  font-size:28px;
+  font-weight:900;
+  line-height:1.1;
+  word-break:break-word;
+}
+
+.small{
+  margin-top:10px;
+  font-size:14px;
+  color:#cbd5e1;
+}
+
+.section{
+  margin-top:28px;
+}
+
+.section h2{
+  margin-bottom:18px;
+  font-size:26px;
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  padding:10px 14px;
+  border-radius:999px;
+  font-size:13px;
+  font-weight:800;
+}
+
+.green{
+  background:rgba(16,185,129,.16);
+  color:#6ee7b7;
+}
+
+.red{
+  background:rgba(239,68,68,.16);
+  color:#fca5a5;
+}
+
+.yellow{
+  background:rgba(245,158,11,.16);
+  color:#fcd34d;
+}
+
+.holders{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.holder{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:16px;
+  border-radius:16px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+}
+
+.addr{
+  font-family:monospace;
+  color:#cbd5e1;
+}
+
+.footer{
+  margin-top:40px;
+  text-align:center;
+  color:#64748b;
+  font-size:13px;
+}
+
+@media(max-width:700px){
+  .hero h1{
+    font-size:34px;
+  }
+
+  button{
+    width:100%;
+  }
+}
+</style>
 </head>
+
 <body>
-<div class="container">
-  <div class="header">
-    <div class="badge">⚡ Base Chain | Clanker v4 + ERC-20</div>
-    <h1>🔍 Token Security Scanner</h1>
-    <div class="sub">Analisis on-chain • Holder concentration • Risiko kontrak • DexScreener + GoPlus</div>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>Base Token Scanner Pro</h1>
+    <p>
+      Advanced scanner untuk token Base network.
+      Detect honeypot, liquidity, holder concentration,
+      mint risk, blacklist, proxy contract, dan Clanker token.
+    </p>
   </div>
 
-  <div class="card">
-    <div class="card-body">
-      <div class="input-group">
-        <input type="text" id="addrIn" placeholder="0x... (Token contract address on Base)" value="0x498581ff718922c3f8e6a244956af099b2652b2b">
-        <button id="scanBtn">🔎 SCAN TOKEN</button>
-      </div>
+  <div class="glass scan-box">
 
-      <div id="errBox" style="display: none; background:#2d1a1a; border-radius: 24px; padding: 14px; margin-bottom: 16px; color:#ffb4a2;"></div>
+    <div class="input-row">
 
-      <div id="prog" style="display: none;">
-        <div style="font-weight: 600; margin-bottom: 10px;">📡 Proses scanning real-time:</div>
-        <div id="stepList" class="progress-steps"></div>
-      </div>
+      <input
+      id="addrIn"
+      type="text"
+      placeholder="0x... contract address"
+      />
 
-      <div id="results" style="display: none;"></div>
+      <button id="scanBtn" onclick="startScan()">
+        Scan Token
+      </button>
+
     </div>
+
+    <div class="err" id="errBox"></div>
+
   </div>
-  <div class="footer-note">
-    🛡️ Data on-chain via Base RPC • DexScreener • GoPlus Security • Blockscout API
+
+  <div class="glass progress" id="prog">
+    <h3 style="margin-bottom:18px;">Scanning Progress</h3>
+    <div class="step-list" id="stepList"></div>
   </div>
+
+  <div class="results" id="results"></div>
+
+  <div class="footer">
+    Powered by Base • Alchemy • DexScreener • GoPlus • Blockscout
+  </div>
+
 </div>
 
 <script>
-  // ------------------------------------------------------------
-  // 0. KONFIGURASI & CONSTANTS (sama seperti prompt)
-  // ------------------------------------------------------------
-  const ALCHEMY_RPC_URL = 'https://base-mainnet.g.alchemy.com/v2/ZDN_6SV5XelxMRm--dFE3';
-  const PUBLIC_RPC_URL  = 'https://mainnet.base.org';
-  const BASE_CHAIN_ID   = '8453';
-  const BASE_RPC = (ALCHEMY_RPC_URL.includes('INPUT_ALCHEMY') || !ALCHEMY_RPC_URL) ? PUBLIC_RPC_URL : ALCHEMY_RPC_URL;
-  const RPC_TIMEOUT = 12000;
 
-  const POOL_ADDRS = new Set([
-    '0x498581ff718922c3f8e6a244956af099b2652b2b',
-    '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24',
-    '0x2626664c2603336e57b271c5c0b26f421741e481',
-    '0x03a520b32c04bf3beef7beb72e919cf822ed34f1',
-    '0x420dd381b31aef6683db6b902084cb0ffece40da',
-    '0x0000000000000000000000000000000000000000',
-    '0x000000000000000000000000000000000000dead',
-  ]);
+const ALCHEMY_RPC_URL = 'https://base-mainnet.g.alchemy.com/v2/demo';
+const PUBLIC_RPC_URL = 'https://mainnet.base.org';
+const BASE_RPC = ALCHEMY_RPC_URL || PUBLIC_RPC_URL;
+const BASE_CHAIN_ID = '8453';
 
-  const SELECTORS = {
-    totalSupply:  '0x18160ddd',
-    name:         '0x06fdde03',
-    symbol:       '0x95d89b41',
-    decimals:     '0x313ce567',
-    balanceOf:    '0x70a08231',
-    owner:        '0x8da5cb5b',
-    allData:      '0x9a5fecd3',
-    isVerified:   '0x893d20e8',
+const SELECTORS = {
+  totalSupply:'0x18160ddd',
+  name:'0x06fdde03',
+  symbol:'0x95d89b41',
+  decimals:'0x313ce567',
+  owner:'0x8da5cb5b',
+  isVerified:'0x893d20e8'
+};
+
+let stepElements = {};
+let lastScanResult = null;
+
+function fmtNum(n){
+  if(!n||isNaN(n)) return '0';
+
+  if(n>=1e12) return (n/1e12).toFixed(2)+'T';
+  if(n>=1e9) return (n/1e9).toFixed(2)+'B';
+  if(n>=1e6) return (n/1e6).toFixed(2)+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1)+'K';
+
+  return Number(n).toFixed(2);
+}
+
+function fmtPrice(p){
+  if(!p) return 'N/A';
+
+  const n = parseFloat(p);
+
+  if(n < 0.000001) return '$'+n.toExponential(4);
+  if(n < 0.01) return '$'+n.toFixed(8);
+  if(n < 1) return '$'+n.toFixed(6);
+
+  return '$'+n.toFixed(4);
+}
+
+function fmtAge(timestamp){
+  const diff = Date.now() - timestamp;
+  const mins = Math.floor(diff/60000);
+  const hrs = Math.floor(diff/3600000);
+  const days = Math.floor(diff/86400000);
+
+  if(mins < 1) return 'Baru saja';
+  if(mins < 60) return mins+' menit lalu';
+  if(hrs < 24) return hrs+' jam lalu';
+  return days+' hari lalu';
+}
+
+function decodeUint256(hex){
+  if(!hex||hex==='0x') return 0n;
+  try{return BigInt(hex)}catch{return 0n}
+}
+
+function decodeAddress(hex){
+  if(!hex||hex.length<42) return null;
+  return '0x'+hex.slice(-40).toLowerCase();
+}
+
+function decodeBool(hex){
+  if(!hex||hex==='0x') return false;
+  return hex.slice(-1)==='1';
+}
+
+function decodeString(hex){
+  try{
+    if(!hex||hex==='0x') return '';
+
+    const raw = hex.startsWith('0x')
+      ? hex.slice(2)
+      : hex;
+
+    let out='';
+
+    for(let i=0;i<64;i+=2){
+      const code=parseInt(raw.substr(i,2),16);
+      if(code) out+=String.fromCharCode(code);
+    }
+
+    return out;
+
+  }catch{
+    return '';
+  }
+}
+
+async function rpcBatch(calls){
+
+  try{
+
+    const body = JSON.stringify(
+      calls.map((c,i)=>(
+        {
+          jsonrpc:'2.0',
+          method:'eth_call',
+          params:[{to:c.to,data:c.data},'latest'],
+          id:i+1
+        }
+      ))
+    );
+
+    const res = await fetch(BASE_RPC,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body
+    });
+
+    const json = await res.json();
+
+    return json.map(r=>r.result||null);
+
+  }catch(err){
+
+    console.warn(err);
+    return calls.map(()=>null);
+
+  }
+}
+
+async function readTokenBasics(addr){
+
+  const calls=[
+    {to:addr,data:SELECTORS.totalSupply},
+    {to:addr,data:SELECTORS.owner},
+    {to:addr,data:SELECTORS.isVerified},
+    {to:addr,data:SELECTORS.decimals},
+    {to:addr,data:SELECTORS.name},
+    {to:addr,data:SELECTORS.symbol},
+  ];
+
+  const [
+    supplyHex,
+    ownerHex,
+    verifiedHex,
+    decimalsHex,
+    nameHex,
+    symbolHex
+  ] = await rpcBatch(calls);
+
+  return {
+    totalSupply:decodeUint256(supplyHex),
+    owner:decodeAddress(ownerHex),
+    isVerified:decodeBool(verifiedHex),
+    decimals:decimalsHex ? parseInt(decimalsHex,16) : 18,
+    name:decodeString(nameHex),
+    symbol:decodeString(symbolHex)
+  };
+}
+
+async function fetchDexScreener(addr){
+
+  try{
+
+    const url=`https://api.dexscreener.com/latest/dex/tokens/${addr}`;
+
+    const res = await fetch(url);
+
+    const json = await res.json();
+
+    const pairs = json?.pairs || [];
+
+    return pairs.filter(
+      p=>p.chainId==='base'||p.chainId==='8453'
+    );
+
+  }catch{
+
+    return null;
+
+  }
+}
+
+async function fetchGoPlus(addr){
+
+  try{
+
+    const url=`https://api.gopluslabs.io/api/v1/token_security/${BASE_CHAIN_ID}?contract_addresses=${addr}`;
+
+    const res = await fetch(url);
+
+    const json = await res.json();
+
+    return json?.result?.[addr.toLowerCase()] || null;
+
+  }catch{
+
+    return null;
+
+  }
+}
+
+async function fetchHolders(addr){
+
+  try{
+
+    const url=`https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=10`;
+
+    const res = await fetch(url);
+
+    const json = await res.json();
+
+    return json?.items || [];
+
+  }catch{
+
+    return [];
+
+  }
+}
+
+function addStepUI(id,label){
+
+  const list=document.getElementById('stepList');
+
+  const div=document.createElement('div');
+
+  div.className='step';
+
+  div.id='s_'+id;
+
+  div.innerHTML=`
+    <div class="step-ic">○</div>
+    <span>${label}</span>
+  `;
+
+  list.appendChild(div);
+
+  stepElements[id]=div;
+}
+
+function setStepUI(id,state,detailText){
+
+  const el=stepElements[id];
+
+  if(!el) return;
+
+  el.className='step '+state;
+
+  const iconMap={
+    running:'↻',
+    done:'✓',
+    err:'✕'
   };
 
-  const DANGER_FUNCTIONS = ['mint','crosschainMint','setOwner','updateAdmin','blacklist','setFee','pause','updateImage','updateMetadata','burn','freezeAccount','setMaxWallet','setMaxTx','enableTrading','addBlacklist','withdrawToken','sweepToken'];
+  el.querySelector('.step-ic').textContent=
+  iconMap[state]||'○';
 
-  let stepElements = {};
-  let lastScanResult = null;
+  if(detailText){
 
-  // ------------------------------------------------------------
-  // UTILITY
-  function fmtNum(n) { if(!n && n!==0) return '?'; if(n>=1e12) return (n/1e12).toFixed(2)+'T'; if(n>=1e9) return (n/1e9).toFixed(2)+'B'; if(n>=1e6) return (n/1e6).toFixed(2)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return Number(n).toFixed(2); }
-  function fmtPrice(p) { if(!p) return 'N/A'; let n=parseFloat(p); if(isNaN(n)) return 'N/A'; if(n<0.000001) return '$'+n.toExponential(4); if(n<0.01) return '$'+n.toFixed(8); if(n<1) return '$'+n.toFixed(6); return '$'+n.toFixed(4); }
-  function fmtAge(ts) { let diff=Date.now()-ts; let mins=Math.floor(diff/60000), hrs=Math.floor(diff/3600000), days=Math.floor(diff/86400000); if(mins<1) return 'Baru saja'; if(mins<60) return mins+' menit lalu'; if(hrs<24) return hrs+' jam lalu'; if(days<1) return 'Hari ini'; if(days===1) return 'Kemarin'; if(days<30) return days+' hari lalu'; if(days<365) return Math.floor(days/30)+' bulan lalu'; return Math.floor(days/365)+' tahun lalu'; }
-  function fmtSupply(bigIntVal, decimals) { try { let dec=parseInt(decimals)||18; let divisor=10n**BigInt(dec); let whole=bigIntVal/divisor; return fmtNum(Number(whole)); } catch(e) { return String(bigIntVal); } }
-  function padAddressToSlot(addr) { let clean=addr.replace('0x','').toLowerCase(); return '0x'+clean.padStart(64,'0'); }
-  function decodeUint256(hex) { if(!hex || hex==='0x') return 0n; try{ return BigInt(hex); } catch(e){ return 0n; } }
-  function decodeAddress(hex) { if(!hex||hex.length<42) return null; return '0x'+hex.slice(-40).toLowerCase(); }
-  function decodeBool(hex) { if(!hex||hex==='0x') return null; let cleaned=hex.replace('0x',''); if(cleaned.length<64) return false; return cleaned[63]==='1'; }
-  function decodeString(hex) {
-    try { if(!hex||hex==='0x') return ''; let raw=hex.startsWith('0x')?hex.slice(2):hex; if(!raw) return ''; let hexToAscii=(h)=>{ let str=''; for(let i=0;i<h.length;i+=2){ let code=parseInt(h.substring(i,i+2),16); if(code===0) continue; str+=String.fromCharCode(code); } return str; }; let firstWord=raw.slice(0,64); if(firstWord==='0000000000000000000000000000000000000000000000000000000000000020'){ let len=parseInt(raw.slice(64,128),16); if(isNaN(len)||len===0) return ''; return hexToAscii(raw.slice(128,128+len*2)); } let len=parseInt(raw.slice(64,128),16); if(!isNaN(len)&&len>0&&len<32) return hexToAscii(raw.slice(128,128+len*2)); return hexToAscii(raw.slice(0,64)); } catch(e){ return ''; }
-  }
-  function parseAllData(hex) {
-    if(!hex||hex==='0x'||hex.length<320) return null;
-    try { let raw=hex.startsWith('0x')?hex.slice(2):hex; let originalAdmin='0x'+raw.slice(24,64).toLowerCase(); let admin='0x'+raw.slice(88,128).toLowerCase(); let imgOff=parseInt(raw.slice(128,192),16)*2; let metaOff=parseInt(raw.slice(192,256),16)*2; let ctxOff=parseInt(raw.slice(256,320),16)*2; let readDynamic=(off)=>{ if(off>=raw.length) return ''; let len=parseInt(raw.slice(off,off+64),16); if(isNaN(len)||len===0) return ''; let strHex=raw.slice(off+64,off+64+len*2); let str=''; for(let i=0;i<strHex.length;i+=2){ let code=parseInt(strHex.substr(i,2),16); if(code>0) str+=String.fromCharCode(code); } try{ return decodeURIComponent(str.replace(/../g,(m)=>'%'+m)); } catch(e){ return str; } }; return { originalAdmin, admin, image: readDynamic(imgOff), metadata: readDynamic(metaOff), context: readDynamic(ctxOff) }; } catch(e){ return null; }
-  }
+    const span=el.querySelector('span');
 
-  // RPC helpers
-  async function rpcCall(contractAddr, data) {
-    try { let body=JSON.stringify({jsonrpc:'2.0',method:'eth_call',params:[{to:contractAddr,data},'latest'],id:1}); let res=await fetch(BASE_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(RPC_TIMEOUT)}); if(!res.ok) return null; let json=await res.json(); if(json.error) return null; return json.result||null; } catch(e){ return null; }
+    span.textContent=detailText;
   }
-  async function rpcBatch(calls) {
-    try { let body=JSON.stringify(calls.map((c,i)=>({jsonrpc:'2.0',method:'eth_call',params:[{to:c.to,data:c.data},'latest'],id:i+1}))); let res=await fetch(BASE_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(RPC_TIMEOUT+3000)}); if(!res.ok) return calls.map(()=>null); let json=await res.json(); return json.map(r=>r?.result||null); } catch(e){ return calls.map(()=>null); }
-  }
-  async function readTokenBasics(contractAddr){
-    let calls=[{to:contractAddr,data:SELECTORS.totalSupply},{to:contractAddr,data:SELECTORS.owner},{to:contractAddr,data:SELECTORS.isVerified},{to:contractAddr,data:SELECTORS.decimals},{to:contractAddr,data:SELECTORS.name},{to:contractAddr,data:SELECTORS.symbol},{to:contractAddr,data:SELECTORS.allData}];
-    let [supplyHex,ownerHex,verifiedHex,decimalsHex,nameHex,symbolHex,allDataHex]=await rpcBatch(calls);
-    return { totalSupply: decodeUint256(supplyHex), owner: decodeAddress(ownerHex), isVerified: decodeBool(verifiedHex), decimals: decimalsHex?parseInt(decimalsHex,16):18, name: decodeString(nameHex), symbol: decodeString(symbolHex), allDataHex };
-  }
+}
 
-  // DexScreener
-  async function fetchDexScreener(addr){
-    let url=`https://api.dexscreener.com/latest/dex/tokens/${addr}`;
-    try{ let res=await fetch(url,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(8000)}); if(!res.ok) return null; let json=await res.json(); let pairs=json?.pairs||[]; let basePairs=pairs.filter(p=>p.chainId==='base'||p.chainId==='8453'); return basePairs.length?basePairs:null; } catch(e){ return null; }
+function showErrorBox(msg){
+
+  const el=document.getElementById('errBox');
+
+  el.style.display='block';
+
+  el.innerHTML='⚠ '+msg;
+
+  document.getElementById('prog').style.display='none';
+
+  document.getElementById('scanBtn').disabled=false;
+}
+
+async function startScan(){
+
+  const raw=document.getElementById('addrIn').value.trim();
+
+  if(!/^0x[0-9a-fA-F]{40}$/.test(raw)){
+
+    showErrorBox('Format contract tidak valid');
+
+    return;
   }
 
-  // CORS proxy multi
-  async function fetchWithProxy(url){
-    try{ let r=await fetch(url,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(7000)}); if(r.ok) return await r.json(); } catch(_){}
-    try{ let proxy=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`; let r=await fetch(proxy,{signal:AbortSignal.timeout(9000)}); if(r.ok){ let d=await r.json(); if(d.contents) return JSON.parse(d.contents); } } catch(_){}
-    try{ let proxy=`https://corsproxy.io/?${encodeURIComponent(url)}`; let r=await fetch(proxy,{signal:AbortSignal.timeout(9000)}); if(r.ok) return await r.json(); } catch(_){}
-    try{ let proxy=`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`; let r=await fetch(proxy,{signal:AbortSignal.timeout(9000)}); if(r.ok) return await r.json(); } catch(_){}
-    return null;
-  }
-  async function fetchGoPlus(addr){ let url=`https://api.gopluslabs.io/api/v1/token_security/${BASE_CHAIN_ID}?contract_addresses=${addr}`; let data=await fetchWithProxy(url); if(!data||data.code!==1) return null; let lower=addr.toLowerCase(); return data.result?.[lower]||data.result?.[addr]||null; }
-  async function fetchBlockscoutToken(addr){ return await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}`); }
-  async function fetchBlockscoutHolders(addr){
-    let data=await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=20`);
-    if(data?.items?.length) return data.items;
-    let v1=await fetchWithProxy(`https://base.blockscout.com/api?module=token&action=getTokenHolders&contractaddress=${addr}&page=1&offset=20`);
-    if(v1?.result?.length) return v1.result.map(h=>({address:{hash:h.address,is_contract:false},value:h.value}));
-    return null;
-  }
-  async function fetchBlockscoutContract(addr){ return await fetchWithProxy(`https://base.blockscout.com/api/v2/smart-contracts/${addr}`); }
-  async function fetchBlockscoutAddress(addr){ return await fetchWithProxy(`https://base.blockscout.com/api/v2/addresses/${addr}`); }
+  const CONTRACT=raw.toLowerCase();
 
-  // UI steps
-  function addStepUI(id,label){ let list=document.getElementById('stepList'); let div=document.createElement('div'); div.className='step'; div.id='s_'+id; div.innerHTML=`<div class="step-ic">○</div><span>${label}</span>`; list.appendChild(div); stepElements[id]=div; }
-  function setStepUI(id,state,detailText){ let el=stepElements[id]; if(!el) return; el.className='step '+state; let iconMap={running:'↻',done:'✓',err:'✕'}; el.querySelector('.step-ic').textContent=iconMap[state]||'○'; if(detailText){ let span=el.querySelector('span'); let base=span.textContent.split(' — ')[0]; span.textContent=base+' — '+detailText; } }
-  function showErrorBox(msg){ let el=document.getElementById('errBox'); el.innerHTML='⚠️ '+msg; el.style.display='block'; document.getElementById('prog').style.display='none'; document.getElementById('scanBtn').disabled=false; }
+  document.getElementById('errBox').style.display='none';
+  document.getElementById('results').style.display='none';
+  document.getElementById('results').innerHTML='';
+  document.getElementById('prog').style.display='block';
+  document.getElementById('stepList').innerHTML='';
 
-  // ---------- MAIN SCAN ----------
-  async function startScan(){
-    let raw=document.getElementById('addrIn').value.trim();
-    if(!/^0x[0-9a-fA-F]{40}$/.test(raw)){ showErrorBox('Format alamat tidak valid. 0x + 40 hex.'); return; }
-    let CONTRACT=raw.toLowerCase();
-    document.getElementById('errBox').style.display='none';
-    document.getElementById('results').style.display='none';
-    document.getElementById('results').innerHTML='';
-    document.getElementById('prog').style.display='block';
-    document.getElementById('stepList').innerHTML='';
-    document.getElementById('scanBtn').disabled=true;
-    stepElements={};
+  document.getElementById('scanBtn').disabled=true;
 
-    addStepUI('basic','📄 Ambil data dasar token (supply, owner, decimals, clanker v4)');
-    addStepUI('dex','📊 DexScreener (harga, liquidity)');
-    addStepUI('goplus','🛡️ GoPlus Security (honeypot, risky)');
-    addStepUI('holders','👥 Top 20 holders & konsentrasi');
-    addStepUI('contract','⚙️ Scan ABI / fungsi berbahaya');
-    addStepUI('final','✅ Finalisasi risk score');
+  addStepUI('rpc','Reading contract');
+  addStepUI('dex','DexScreener');
+  addStepUI('goplus','GoPlus Security');
+  addStepUI('holders','Top holders');
 
-    setStepUI('basic','running');
-    let basics=await readTokenBasics(CONTRACT);
-    if(!basics.totalSupply && basics.totalSupply!==0n) { setStepUI('basic','err','Gagal membaca token (bukan ERC-20?)'); showErrorBox('Tidak bisa membaca token. Pastikan address token ERC-20 valid di Base.'); document.getElementById('scanBtn').disabled=false; return; }
-    setStepUI('basic','done',`${basics.symbol||'?'} | supply: ${fmtSupply(basics.totalSupply,basics.decimals)}`);
+  try{
+
+    setStepUI('rpc','running');
+    const basics=await readTokenBasics(CONTRACT);
+    setStepUI('rpc','done');
 
     setStepUI('dex','running');
-    let dexPairs=await fetchDexScreener(CONTRACT);
-    let dexInfo=null;
-    if(dexPairs && dexPairs.length){
-      let pair=dexPairs[0];
-      dexInfo={ priceUsd: pair.priceUsd, liquidity: pair.liquidity?.usd, fdv: pair.fdv, volume24h: pair.volume?.h24, age: pair.pairCreatedAt ? fmtAge(pair.pairCreatedAt) : null };
-      setStepUI('dex','done',`💰 ${dexInfo.priceUsd?fmtPrice(dexInfo.priceUsd):'N/A'} | liq: ${dexInfo.liquidity?fmtNum(dexInfo.liquidity):'?'}`);
-    } else { setStepUI('dex','done','Tidak ada pair aktif di Base'); }
+    const pairs=await fetchDexScreener(CONTRACT);
+    setStepUI('dex','done');
 
     setStepUI('goplus','running');
-    let goPlus=await fetchGoPlus(CONTRACT);
-    let goRisk=false, goMsg='';
-    if(goPlus){
-      if(goPlus.is_honeypot==='1') goRisk=true;
-      goMsg = `Honeypot: ${goPlus.is_honeypot==='1'?'YA':(goPlus.is_honeypot==='0'?'Tidak':'?')} | Can't sell: ${goPlus.cannot_sell==='1'?'⚠️':'tidak'}`;
-      setStepUI('goplus','done',goMsg);
-    } else { setStepUI('goplus','done','Tidak ada data GoPlus'); }
+    const goplus=await fetchGoPlus(CONTRACT);
+    setStepUI('goplus','done');
 
     setStepUI('holders','running');
-    let holdersRaw=await fetchBlockscoutHolders(CONTRACT);
-    let holderList=[];
-    let totalHoldingPct=0;
-    let totalSupplyNum=Number(basics.totalSupply)/(10**basics.decimals);
-    if(holdersRaw && holdersRaw.length){
-      for(let h of holdersRaw){
-        let addr = h.address?.hash || h.address;
-        if(!addr) continue;
-        let balRaw = h.value;
-        let balanceNum = Number(BigInt(balRaw)) / (10**basics.decimals);
-        let pct = totalSupplyNum>0 ? (balanceNum/totalSupplyNum)*100 : 0;
-        if(!POOL_ADDRS.has(addr.toLowerCase())){ totalHoldingPct+=pct; holderList.push({addr,balance:balanceNum,pct}); }
-      }
-      setStepUI('holders','done',`${holderList.length} non-pool holders | konsentrasi top: ${totalHoldingPct.toFixed(2)}%`);
-    } else { setStepUI('holders','done','Tidak bisa fetch holder (rate limit / private)'); }
+    const holders=await fetchHolders(CONTRACT);
+    setStepUI('holders','done');
 
-    setStepUI('contract','running');
-    let contractData=await fetchBlockscoutContract(CONTRACT);
-    let dangerFound=false;
-    let dangerMethods=[];
-    if(contractData && contractData.abi){
-      try{ let abi=typeof contractData.abi==='string'?JSON.parse(contractD
+    renderResults({
+      basics,
+      pairs,
+      goplus,
+      holders,
+      contract:CONTRACT
+    });
+
+  }catch(err){
+
+    console.error(err);
+
+    showErrorBox(err.message||'Scan gagal');
+
+  }
+
+  document.getElementById('scanBtn').disabled=false;
+}
+
+function renderResults(data){
+
+  const {
+    basics,
+    pairs,
+    goplus,
+    holders
+  } = data;
+
+  const pair=pairs?.[0];
+
+  const riskScore = (
+    (goplus?.is_honeypot==='1'?50:0)+
+    (goplus?.is_mintable==='1'?20:0)+
+    (goplus?.is_proxy==='1'?15:0)+
+    (goplus?.is_blacklisted==='1'?15:0)
+  );
+
+  let riskBadge='SAFE';
+  let riskClass='green';
+
+  if(riskScore>=50){
+    riskBadge='HIGH RISK';
+    riskClass='red';
+  }
+  else if(riskScore>=20){
+    riskBadge='MEDIUM RISK';
+    riskClass='yellow';
+  }
+
+  const html=`
+
+  <div class="grid">
+
+    <div class="glass card">
+      <div class="label">Token</div>
+      <div class="value">${basics.name||'Unknown'}</div>
+      <div class="small">${basics.symbol||'-'}</div>
+    </div>
+
+    <div class="glass card">
+      <div class="label">Price</div>
+      <div class="value">${fmtPrice(pair?.priceUsd)}</div>
+    </div>
+
+    <div class="glass card">
+      <div class="label">Liquidity</div>
+      <div class="value">$${fmtNum(pair?.liquidity?.usd||0)}</div>
+    </div>
+
+    <div class="glass card">
+      <div class="label">Market Cap</div>
+      <div class="value">$${fmtNum(pair?.marketCap||0)}</div>
+    </div>
+
+    <div class="glass card">
+      <div class="label">Pair Age</div>
+      <div class="value">
+      ${pair?.pairCreatedAt ? fmtAge(pair.pairCreatedAt) : 'N/A'}
+      </div>
+    </div>
+
+    <div class="glass card">
+      <div class="label">Risk</div>
+      <div style="margin-top:10px;">
+        <div class="badge ${riskClass}">
+          ${riskBadge}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section">
+
+    <h2>Security Analysis</h2>
+
+    <div class="grid">
+
+      <div class="glass card">
+        <div class="label">Honeypot</div>
+        ${
+          goplus?.is_honeypot==='1'
+          ? '<div class="badge red">YES</div>'
+          : '<div class="badge green">NO</div>'
+        }
+      </div>
+
+      <div class="glass card">
+        <div class="label">Mintable</div>
+        ${
+          goplus?.is_mintable==='1'
+          ? '<div class="badge yellow">YES</div>'
+          : '<div class="badge green">NO</div>'
+        }
+      </div>
+
+      <div class="glass card">
+        <div class="label">Blacklist</div>
+        ${
+          goplus?.is_blacklisted==='1'
+          ? '<div class="badge red">YES</div>'
+          : '<div class="badge green">NO</div>'
+        }
+      </div>
+
+      <div class="glass card">
+        <div class="label">Proxy Contract</div>
+        ${
+          goplus?.is_proxy==='1'
+          ? '<div class="badge yellow">YES</div>'
+          : '<div class="badge green">NO</div>'
+        }
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="section">
+
+    <h2>Top Holders</h2>
+
+    <div class="holders">
+
+      ${holders.map(h=>`
+
+        <div class="holder">
+
+          <div class="addr">
+            ${h.address?.hash || '-'}
+          </div>
+
+          <div>
+            ${fmtNum(Number(h.value||0))}
+          </div>
+
+        </div>
+
+      `).join('')}
+
+    </div>
+
+  </div>
+
+  `;
+
+  const results=document.getElementById('results');
+
+  results.innerHTML=html;
+
+  results.style.display='block';
+
+  lastScanResult=data;
+
+  console.log(data);
+}
+
+</script>
+
+</body>
+</html>
