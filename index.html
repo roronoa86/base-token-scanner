@@ -568,35 +568,50 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   
   
   
-  // Pengecekan Clanker yang sangat aman (Safe Evaluation)
-    const CLANKER_FACTORIES = [
-    '0xe85a59c628f7d27878aceb4bf3b35733630083a9', // Clanker v4 (Base)
-    '0x2a787b2362021cc3eea3c24c4748a6cd5b687382', // Clanker v3.1.0 (Base Mainnet & Sepolia)
-    '0x256dddd03b9b94098939763dc0b4d4b732fb6bb1', // Doppler / Older v1-v2
-    '0x1a0ad19a73752ea416c116c4c2c62c3e414c5b36'  // Older Clanker
-  ];
-  
-  let isDeployerClanker = false;
-  if (deployerAddr && typeof deployerAddr === 'string') {
-    isDeployerClanker = CLANKER_FACTORIES.includes(deployerAddr.toLowerCase());
-  }
+  // Pengecekan Clanker yang BENAR dan AKURAT
+  // Factory addresses Clanker di Base - INI adalah creator token, bukan deployer wallet!
+  const CLANKER_FACTORIES = {
+    '0xe85a59c628f7d27878aceb4bf3b35733630083a9': 'Clanker v4',
+    '0x2a787b2362021cc3eea3c24c4748a6cd5b687382': 'Clanker v3.1.0',
+    '0x256dddd03b9b94098939763dc0b4d4b732fb6bb1': 'Doppler/Clanker v1-v2',
+    '0x1a0ad19a73752ea416c116c4c2c62c3e414c5b36': 'Clanker Old'
+  };
 
-  let hasIsVerified = false;
-  if (rpcData && typeof rpcData.isVerified === 'boolean') {
-    hasIsVerified = true;
-  }
-  
+  // AMBIL CREATOR HASH dari Blockscout - INI factory address untuk token dari factory
+  const creatorHash = (tokenInfo?.creator_address_hash || contractInfo?.creator_address_hash || '').toLowerCase();
+
+  // Cek 1: Token dibuat via Clanker FACTORY (paling akurat)
+  const isCreatedViaClankerFactory = Object.keys(CLANKER_FACTORIES).includes(creatorHash);
+  const clankerFactoryName = CLANKER_FACTORIES[creatorHash] || null;
+
+  // Cek 2: allData() context field mengandung "clanker"
+  const hasClankerContext = allData?.context?.toLowerCase?.().includes('clanker') || false;
+
+  // Cek 3: ABI Clanker-style (punya allData, originalAdmin, isVerified)
   let isClankerAbi = false;
-  if (contractInfo && contractInfo.abi) {
+  if (contractInfo?.abi) {
     try {
       const abiStr = typeof contractInfo.abi === 'string' ? contractInfo.abi.toLowerCase() : JSON.stringify(contractInfo.abi).toLowerCase();
-      if (abiStr.includes('alldata') || abiStr.includes('originaladmin') || abiStr.includes('isverified')) {
-        isClankerAbi = true;
-      }
+      isClankerAbi = abiStr.includes('"alldata"') && abiStr.includes('"originaladmin"');
     } catch(e) { console.error('ABI Parse Error', e); }
   }
 
-  const isClanker = (allData !== null) || hasIsVerified || isDeployerClanker || isClankerAbi;
+  // Cek 4: isVerified() berhasil dipanggil dan return value (berarti fungsi ada)
+  const hasIsVerifiedFunction = rpcData?.isVerified !== null && rpcData?.isVerified !== undefined;
+
+  // GABUNGKAN semua sinyal
+  const isClanker = isCreatedViaClankerFactory || hasClankerContext || isClankerAbi;
+
+  // LOG untuk debugging
+  console.log('Clanker Detection:', {
+    creatorHash,
+    isCreatedViaClankerFactory,
+    clankerFactoryName,
+    hasClankerContext,
+    isClankerAbi,
+    hasIsVerifiedFunction,
+    isClanker
+  });
 
 
 
@@ -610,8 +625,23 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     add(I, `Admin saat ini: ${allData.admin}`);
   }
 
-  if (rpcData.isVerified === false) add(Y, 'isVerified() = false — belum diverifikasi oleh platform Clanker', 1);
-  else if (rpcData.isVerified === true) add(G, 'isVerified() = true — terverifikasi oleh platform Clanker ✓');
+  // Scoring untuk Clanker token
+  if (isClanker) {
+    if (isCreatedViaClankerFactory) {
+      add(G, `Token dibuat via Clanker Factory resmi: ${clankerFactoryName || creatorHash.slice(0,10)}…`);
+    } else {
+      add(Y, 'ABI bergaya Clanker tetapi TIDAK dibuat via factory resmi — kemungkinan fake/clone', 1);
+    }
+
+    if (rpcData.isVerified === true) {
+      add(G, 'isVerified() = true — terverifikasi di platform Clanker ✓');
+    } else if (rpcData.isVerified === false) {
+      add(Y, 'isVerified() = false — belum diverifikasi di platform Clanker', 1);
+    }
+  } else if (hasIsVerifiedFunction) {
+    // Punya isVerified tapi bukan Clanker - mencurigakan
+    add(Y, 'isVerified() function ada tapi token bukan dari Clanker factory — clone/imitation?', 1);
+  }
 
   if (goplus) {
     if (goplus.is_honeypot === '1')           add(R, '🍯 HONEYPOT — kamu tidak bisa menjual token ini!', 5);
@@ -743,6 +773,7 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
 
   return {
     addr, verdict, score, totalFlags, isClanker,
+    isCreatedViaClankerFactory, clankerFactoryName, creatorHash,
     flags: { red: R, yellow: Y, green: G, info: I },
     rpcData, allData, goplus, pairs, pair,
     tokenInfo, holders, concData, contractInfo,
@@ -756,7 +787,8 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
 function renderResults(a) {
   const { addr, verdict, score, totalFlags, flags, rpcData, allData,
     goplus, pairs, pair, tokenInfo, holders, concData,
-    contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal, isClanker } = a;
+    contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal,
+    isClanker, isCreatedViaClankerFactory, clankerFactoryName, creatorHash } = a;
 
   if (verdict === 'NOT_CONTRACT') {
     document.getElementById('results').innerHTML = `
@@ -850,29 +882,43 @@ function renderResults(a) {
   const mkFlags = (arr, cls, ico) => arr.map(f =>
     `<div class="flag ${cls}"><span class="f-ic">${ico}</span><span>${f}</span></div>`).join('');
 
-  
   let allDataHTML = '';
   if (isClanker) {
+    const factoryBadge = isCreatedViaClankerFactory
+      ? `<span class="tag tg" style="margin-left:8px;">${clankerFactoryName || 'CLANKER FACTORY'}</span>`
+      : `<span class="tag ty" style="margin-left:8px;">CLANKER-STYLE</span>`;
+
     if (allData) {
       allDataHTML = `
+      <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="color:var(--accent);font-weight:bold;">Token dibuat via Clanker Platform</span>
+        ${factoryBadge}
+      </div>
       <div class="rpc-grid">
-        <div class="rpc-item"><div class="rpc-key">Original Admin</div><div class="rpc-val info" style="font-size:10px;">${allData.originalAdmin}</div></div>
-        <div class="rpc-item"><div class="rpc-key">Current Admin</div><div class="rpc-val info" style="font-size:10px;">${allData.admin}</div></div>
-        <div class="rpc-item"><div class="rpc-key">Image</div><div class="rpc-val ${allData.image?'ok':'bad'}">${allData.image?'Ada ✓':'Kosong ✗'}</div></div>
-        <div class="rpc-item"><div class="rpc-key">Metadata</div><div class="rpc-val ${allData.metadata?'ok':'bad'}">${allData.metadata?'Ada ✓':'Kosong ✗'}</div></div>
-        <div class="rpc-item" style="grid-column:span 2"><div class="rpc-key">Context / Platform</div><div class="rpc-val info">${allData.context||'—'}</div></div>
+        <div class="rpc-item"><div class="rpc-key">Original Admin (Deployer)</div><div class="rpc-val info" style="font-size:10px;"><a href="https://basescan.org/address/${allData.originalAdmin}" target="_blank">${allData.originalAdmin.slice(0,10)}…${allData.originalAdmin.slice(-6)}</a></div></div>
+        <div class="rpc-item"><div class="rpc-key">Current Admin</div><div class="rpc-val info" style="font-size:10px;"><a href="https://basescan.org/address/${allData.admin}" target="_blank">${allData.admin.slice(0,10)}…${allData.admin.slice(-6)}</a></div></div>
+        <div class="rpc-item"><div class="rpc-key">Factory Contract</div><div class="rpc-val ${isCreatedViaClankerFactory?'ok':'warn'}" style="font-size:10px;">${isCreatedViaClankerFactory ? `<a href="https://basescan.org/address/${creatorHash}" target="_blank">${clankerFactoryName}</a>` : 'Tidak terdeteksi'}</div></div>
+        <div class="rpc-item"><div class="rpc-key">Platform Verified</div><div class="rpc-val ${rpcData.isVerified===true?'ok':rpcData.isVerified===false?'bad':'warn'}">${rpcData.isVerified===true?'Ya ✓':rpcData.isVerified===false?'Tidak ✗':'N/A'}</div></div>
+        <div class="rpc-item"><div class="rpc-key">Image/Logo</div><div class="rpc-val ${allData.image?'ok':'bad'}">${allData.image?'Ada ✓':'Kosong ✗'}</div></div>
+        <div class="rpc-item"><div class="rpc-key">Metadata JSON</div><div class="rpc-val ${allData.metadata?'ok':'bad'}">${allData.metadata?'Ada ✓':'Kosong ✗'}</div></div>
+        <div class="rpc-item" style="grid-column:span 2"><div class="rpc-key">Platform Context</div><div class="rpc-val info">${allData.context||'—'}</div></div>
       </div>`;
     } else {
       allDataHTML = `
-      <div style="color:var(--yellow);font-size:12px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,224,51,.08);padding:10px;border-radius:6px;border:1px solid rgba(255,224,51,.3);">
-        <span>Token dikenali sebagai Clanker (dari factory / isVerified), tetapi fungsi allData() tidak merespon (kemungkinan versi lama/V1-V3).</span>
-        <span class="tag tb" style="margin-left:8px;">CLANKER LEGACY</span>
+      <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="color:var(--yellow);font-weight:bold;">Token bergaya Clanker tapi allData() tidak tersedia</span>
+        ${factoryBadge}
+      </div>
+      <div style="font-size:12px;color:var(--muted);">
+        ${isCreatedViaClankerFactory
+          ? 'Token dibuat via Clanker Factory tetapi fungsi <code>allData()</code> tidak ada (mungkin versi lama).'
+          : 'ABI memiliki pola Clanker-style (originalAdmin/isVerified) tetapi bukan dari factory resmi.'}
       </div>`;
     }
   } else {
     allDataHTML = `
     <div style="color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:space-between;">
-      <span>Bukan token dari ekosistem Clanker. Fungsi spesifik tidak tersedia.</span>
+      <span><b style="color:var(--text);">Bukan token Clanker.</b> Token ini regular ERC-20 tanpa integrasi Clanker.</span>
       <span class="tag be" style="margin-left:8px;">REGULAR ERC-20</span>
     </div>`;
   }
@@ -994,21 +1040,26 @@ function renderResults(a) {
   <div class="card"><div class="card-b" style="font-size:12px;line-height:1.9;color:var(--text);">
     <b style="color:#fff;">Apa yang seharusnya dilakukan tim legit?</b><br>
     ${isClanker ? `
-    <span style="color:var(--muted)">Platform terdeteksi: <b style="color:var(--accent)">Clanker v4</b></span><br>
-    • Deploy dengan <b>vault extension</b> (lockup minimum 7 hari) untuk transparansi<br>
-    • Setup <b>multiple reward recipients</b> (ecosystem, marketing, multisig)<br>
-    • Admin wallet harusnya <b>Safe multisig</b>, bukan EOA tunggal<br>
-    • Semua tokenomics bisa dikonfigurasi <b>di deploy pertama</b> — tidak perlu redeploy<br>
-    • isVerified() = true menandakan komitmen ke platform<br>` : `
-    • Source code harus <b>terverifikasi</b> di BaseScan<br>
-    • Likuiditas harus <b>di-lock</b> (Unicrypt/UNCX)<br>
+    <span style="color:var(--muted)">Platform terdeteksi: <b style="color:var(--accent)">${clankerFactoryName || 'Clanker'}</b></span><br>
+    • Token dibuat via <b>Clanker Factory</b> (${isCreatedViaClankerFactory ? '✓ TERKONFIRMASI' : '✗ TIDAK TERKONFIRMASI'})<br>
+    • <b>isVerified() = true</b> menandakan token terverifikasi di platform (${rpcData.isVerified === true ? '✓ YA' : rpcData.isVerified === false ? '✗ TIDAK' : '? TIDAK ADA FUNGSI'})<br>
+    • Deploy dengan <b>vault extension</b> (lockup minimum 7 hari) untuk transparansi alokasi<br>
+    • Setup <b>multiple reward recipients</b> (ecosystem, marketing, CEX, treasury multisig)<br>
+    • Admin wallet sebaiknya <b>Safe multisig</b>, bukan EOA tunggal<br>
+    • Semua tokenomics (alokasi, lockup, split) bisa dikonfigurasi <b>di deploy pertama</b><br>
+    • Jika tim bilang "harus redeploy untuk fix tokenomics" → <b style="color:var(--red);">RED FLAG</b> karena Clanker v4 support semua di deploy awal<br>
+    ` : `
+    • Source code harus <b>terverifikasi</b> di BaseScan/Blockscout<br>
+    • Likuiditas harus <b>di-lock</b> (Unicrypt/UNCX) atau burned<br>
     • Admin/owner sebaiknya <b>renounced</b> atau multisig<br>
-    • Tidak ada fungsi mint/blacklist/pause yang bisa dieksploitasi`}
+    • Tidak ada fungsi mint/blacklist/pause yang bisa dieksploitasi<br>
+    `}
     <br><br>
     <b style="color:#fff;">Cek manual tambahan:</b><br>
-    • <a href="https://gopluslabs.io/token-security/8453/'+addr+'" target="_blank">GoPlus Security ↗</a> &nbsp;
-    • <a href="https://tokensniffer.com/token/base/'+addr+'" target="_blank">TokenSniffer ↗</a> &nbsp;
-    • <a href="https://de.fi/scanner?chain=base&address='+addr+'" target="_blank">DeFi Scanner ↗</a>
+    • <a href="https://gopluslabs.io/token-security/8453/${addr}" target="_blank">GoPlus Security</a> &nbsp;
+    • <a href="https://tokensniffer.com/token/base/${addr}" target="_blank">TokenSniffer</a> &nbsp;
+    • <a href="https://de.fi/scanner?chain=base&address=${addr}" target="_blank">DeFi Scanner</a><br>
+    ${isClanker ? `• <a href="https://clanker.world/token/${addr}" target="_blank">Clanker Explorer</a>` : ''}
   </div></div>
 
   <div class="sec">Disclaimer</div>
