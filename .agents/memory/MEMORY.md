@@ -1,0 +1,1 @@
+- [Clanker detection logic](clanker-detection.md) — correct selectors, isVerified semantics, and LP safety rules
