@@ -179,9 +179,8 @@ const POOL_ADDRS = new Set([
 const BASESCAN_API = 'https://api.basescan.org/api';
 
 const SEL = {
-  allData:     '0x9a5fecd3',
-  // isVerified() = keccak256("isVerified()")[0:4] = 0xbdda81d9
-  isVerified:  '0xbdda81d9',
+  allData:     '0xb974b0a3', // keccak256("allData()")[0:4]
+  isVerified:  '0x80007e83', // keccak256("isVerified()")[0:4]
   totalSupply: '0x18160ddd',
   owner:       '0x8da5cb5b',
   decimals:    '0x313ce567',
@@ -407,7 +406,7 @@ function decodeString(hex) {
     if (!hex || hex === '0x') return '';
     const raw = hex.startsWith('0x') ? hex.slice(2) : hex;
     if (!raw) return '';
-    const hexToStr = (h) => (h.match(/../g)||[]).map(b=>String.fromCharCode(parseInt(b,16))).join('').replace(/ /g,'');
+    const hexToStr = (h) => (h.match(/../g)||[]).map(b=>String.fromCharCode(parseInt(b,16))).join('').replace(/\0/g,'');
     const firstWord = raw.slice(0,64);
     if (firstWord === '0000000000000000000000000000000000000000000000000000000000000020') {
       const len = parseInt(raw.slice(64,128),16);
@@ -438,8 +437,17 @@ function padAddr(addr) {
 }
 
 async function readAllData(addr) {
-  const result = await rpcCall(addr, SEL.allData);
-  if (!result || result === '0x' || result.length < 130) return null;
+  // Try multiple allData selectors for different Clanker versions
+  // 0xb974b0a3 = keccak256("allData()")[0:4]  ← CORRECT (v3/v4)
+  // 0x9a5fecd3 = wrong selector kept as fallback
+  const ALLDATA_SELECTORS = ['0xb974b0a3', '0x9a5fecd3'];
+  let result = null;
+  for (const sel of ALLDATA_SELECTORS) {
+    const r = await rpcCall(addr, sel);
+    // Minimum valid allData response: 5 head slots × 64 chars + "0x" = 322+ chars
+    if (r && r !== '0x' && r.length >= 322) { result = r; break; }
+  }
+  if (!result) return null;
   try {
     const hex = result.startsWith('0x') ? result.slice(2) : result;
     const originalAdmin = '0x' + hex.slice(24, 64);
@@ -459,7 +467,7 @@ async function readAllData(addr) {
         const rawStringHex = hex.slice(stringLenPos + 64, stringLenPos + 64 + len * 2);
         const matches = rawStringHex.match(/../g);
         if (!matches) return '';
-        return matches.map(b => String.fromCharCode(parseInt(b, 16))).join('').replace(/ /g, '');
+        return matches.map(b => String.fromCharCode(parseInt(b, 16))).join('').replace(/\0/g, '');
       } catch (e) {
         return '';
       }
@@ -481,9 +489,9 @@ async function readAllData(addr) {
 
 async function readTokenRPC(addr) {
   // Try multiple isVerified selectors — Clanker uses different selectors across versions
-  // 0xbdda81d9 = keccak256("isVerified()")[0:4]
-  // 0x893d20e8 = getOwner() — wrong but was in old code
-  const ISVERIFIED_SELECTORS = ['0xbdda81d9', '0xfe9fbb80', '0x893d20e8'];
+  // 0x80007e83 = keccak256("isVerified()")[0:4]  ← CORRECT
+  // 0xbdda81d9 = was wrong in old code, kept as fallback
+  const ISVERIFIED_SELECTORS = ['0x80007e83', '0xbdda81d9', '0xfe9fbb80'];
 
   const [supplyHex, ownerHex, decimalsHex, nameHex, symbolHex,
          ver1, ver2, ver3] = await rpcBatch([
