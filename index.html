@@ -466,8 +466,17 @@ function decodeString(hex) {
 }
 
 function decodeBool(hex) {
+  // A valid ABI-encoded bool is 32 bytes (64 hex chars + "0x") where
+  // the value MUST be exactly 0 (false) or 1 (true) in the last byte.
+  // Anything else is NOT a bool and should return null (prevents false positives
+  // when a non-Clanker contract coincidentally responds to the isVerified selector).
   if (!hex || hex === '0x') return null;
-  return hex.slice(-1) === '1';
+  const raw = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (raw.length < 64) return null;
+  const last32 = raw.slice(-64);
+  // All bytes except last must be zero
+  if (!/^0{62}[01]$/.test(last32)) return null;
+  return last32.slice(-1) === '1';
 }
 
 function decodeUint(hex) {
@@ -477,7 +486,10 @@ function decodeUint(hex) {
 
 function decodeAddr(hex) {
   if (!hex || hex.length < 42) return null;
-  return '0x' + hex.slice(-40);
+  const addr = '0x' + hex.slice(-40).toLowerCase();
+  // Zero address = renounced/no owner
+  if (addr === '0x0000000000000000000000000000000000000000') return null;
+  return addr;
 }
 
 function padAddr(addr) {
@@ -485,17 +497,11 @@ function padAddr(addr) {
 }
 
 async function readAllData(addr) {
-  // Try multiple allData selectors for different Clanker versions
-  // 0xb974b0a3 = keccak256("allData()")[0:4]  ← CORRECT (v3/v4)
-  // 0x9a5fecd3 = wrong selector kept as fallback
-  const ALLDATA_SELECTORS = ['0xb974b0a3', '0x9a5fecd3'];
-  let result = null;
-  for (const sel of ALLDATA_SELECTORS) {
-    const r = await rpcCall(addr, sel);
-    // Minimum valid allData response: 5 head slots × 64 chars + "0x" = 322+ chars
-    if (r && r !== '0x' && r.length >= 322) { result = r; break; }
-  }
-  if (!result) return null;
+  // SEL.allData = 0xb974b0a3 = keccak256("allData()")[0:4] — VERIFIED CORRECT
+  // Returns (address originalAdmin, address admin, string image, string metadata, string context)
+  // Minimum valid response: 5 × 32-byte head slots = 320 hex chars + "0x" = 322 chars
+  const result = await rpcCall(addr, SEL.allData);
+  if (!result || result === '0x' || result.length < 322) return null;
   try {
     const hex = result.startsWith('0x') ? result.slice(2) : result;
     const originalAdmin = '0x' + hex.slice(24, 64);
@@ -536,40 +542,30 @@ async function readAllData(addr) {
 }
 
 async function readTokenRPC(addr) {
-  // Try multiple isVerified selectors — Clanker uses different selectors across versions
-  // 0x80007e83 = keccak256("isVerified()")[0:4]  ← CORRECT
-  // 0xbdda81d9 = was wrong in old code, kept as fallback
-  const ISVERIFIED_SELECTORS = ['0x80007e83', '0xbdda81d9', '0xfe9fbb80'];
-
-  const [supplyHex, ownerHex, decimalsHex, nameHex, symbolHex,
-         ver1, ver2, ver3] = await rpcBatch([
+  // 0x80007e83 = keccak256("isVerified()")[0:4] — VERIFIED CORRECT
+  // Previous fallbacks 0xbdda81d9 and 0xfe9fbb80 were wrong selectors — removed.
+  // decodeBool() now validates the response is actually a bool (not a false positive).
+  const [supplyHex, ownerHex, decimalsHex, nameHex, symbolHex, verHex] = await rpcBatch([
     { to: addr, data: SEL.totalSupply },
     { to: addr, data: SEL.owner },
     { to: addr, data: SEL.decimals },
     { to: addr, data: SEL.name },
     { to: addr, data: SEL.symbol },
-    { to: addr, data: ISVERIFIED_SELECTORS[0] },
-    { to: addr, data: ISVERIFIED_SELECTORS[1] },
-    { to: addr, data: ISVERIFIED_SELECTORS[2] },
+    { to: addr, data: SEL.isVerified },
   ]);
 
-  // Use first isVerified selector that returns a valid bool (not null/0x)
-  const verHexes = [ver1, ver2, ver3];
   let isVerified = null;
-  for (const v of verHexes) {
-    if (v && v !== '0x' && v.length >= 66) {
-      const decoded = decodeBool(v);
-      if (decoded !== null) { isVerified = decoded; break; }
-    }
+  if (verHex && verHex !== '0x' && verHex.length >= 66) {
+    isVerified = decodeBool(verHex); // null if not a valid bool (non-Clanker token)
   }
 
-  console.log('isVerified probe:', { ver1, ver2, ver3, isVerified });
+  console.log('isVerified probe:', { verHex, decoded: isVerified });
 
   return {
     totalSupply: decodeUint(supplyHex),
     owner: ownerHex ? decodeAddr(ownerHex) : null,
     isVerified,
-    decimals: decimalsHex ? parseInt(decimalsHex, 16) : 18,
+    decimals: decimalsHex ? (parseInt(decimalsHex, 16) || 18) : 18,
     name: decodeString(nameHex),
     symbol: decodeString(symbolHex),
   };
@@ -823,11 +819,11 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   } else {
     // For unverified Clanker OR non-Clanker: check LP lock from GoPlus
     if (lpLock.hasData) {
-      if (lpLock.locked && lpLock.lockedPct > 80) {
+      if (lpLock.locked && lpLock.lockedPct >= 80) {
         add(G, `LP LOCKED: ${lpLock.lockedPct.toFixed(1)}% LP terkunci via ${lpLock.lockerNames.join(', ')} ✓`);
       } else if (lpLock.locked) {
         add(Y, `LP sebagian terkunci: ${lpLock.lockedPct.toFixed(1)}% via ${lpLock.lockerNames.join(', ')} — ${(100-lpLock.lockedPct).toFixed(1)}% masih bisa di-remove`, 1);
-      } else if (lpLock.burnedPct > 80) {
+      } else if (lpLock.burnedPct >= 80) {
         add(G, `LP BURNED: ${lpLock.burnedPct.toFixed(1)}% LP sudah di-burn ke dead address — permanen ✓`);
       } else if (lpLock.burnedPct > 0) {
         add(Y, `LP sebagian di-burn: ${lpLock.burnedPct.toFixed(1)}% — sisa bisa di-remove`, 1);
@@ -881,7 +877,11 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     }
 
     if (goplus.is_in_dex === '0') add(R, 'Token tidak listing di DEX apapun', 3);
-    if (goplus.is_open_source === '0' && !isClanker) add(R, 'GoPlus: Source code tidak open source', 1);
+    // is_open_source check: only flag if BOTH GoPlus AND Blockscout agree it's unverified
+    // to avoid double-counting with the source verification check above
+    if (goplus.is_open_source === '0' && !isClanker && !sourceVerified) {
+      add(Y, 'GoPlus: Source code tidak open source di manapun (konfirmasi dari 2 sumber)', 1);
+    }
   } else {
     add(Y, 'GoPlus Security scan tidak tersedia (CORS / token terlalu baru)', 1);
   }
@@ -1135,9 +1135,6 @@ function renderResults(a) {
       </div>
     </div>`;
   } else if (lpLock?.hasData) {
-    const totalSafe = (lpLock.lockedPct || 0) + (lpLock.burnedPct || 0);
-    const isFullySafe = totalSafe >= 95;
-    const isMostlySafe = totalSafe >= 50;
     let lockIcon, lockColor, lockTitle, lockDesc;
 
     if (lpLock.locked && lpLock.lockedPct >= 80) {
