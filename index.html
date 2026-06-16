@@ -175,9 +175,13 @@ const POOL_ADDRS = new Set([
   '0x000000000000000000000000000000000000dead',
 ]);
 
+// Basescan API (etherscan-compatible, no key needed for basic calls)
+const BASESCAN_API = 'https://api.basescan.org/api';
+
 const SEL = {
   allData:     '0x9a5fecd3',
-  isVerified:  '0x893d20e8',
+  // isVerified() = keccak256("isVerified()")[0:4] = 0xbdda81d9
+  isVerified:  '0xbdda81d9',
   totalSupply: '0x18160ddd',
   owner:       '0x8da5cb5b',
   decimals:    '0x313ce567',
@@ -250,12 +254,42 @@ async function fetchDex(addr) {
 }
 
 async function fetchBSToken(addr) {
-  return await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}`);
+  // Try Blockscout v2 first
+  const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}`);
+  if (d?.name) return d;
+
+  // Fallback: Basescan tokeninfo
+  const d2 = await fetchWithProxy(`${BASESCAN_API}?module=token&action=tokeninfo&contractaddress=${addr}`);
+  if (d2?.status === '1' && d2?.result?.[0]) {
+    const t = d2.result[0];
+    return {
+      name: t.tokenName,
+      symbol: t.symbol,
+      decimals: t.divisor,
+      total_supply: t.totalSupply,
+      holders_count: t.holdersCount,
+      creator_address_hash: t.contractAddress, // not creator, but fallback
+      icon_url: t.image || null,
+    };
+  }
+  return null;
+}
+
+// Fetch contract creator via Basescan (more reliable than Blockscout for new tokens)
+async function fetchContractCreator(addr) {
+  const d = await fetchWithProxy(`${BASESCAN_API}?module=contract&action=getcontractcreation&contractaddresses=${addr}`);
+  if (d?.status === '1' && d?.result?.[0]) {
+    return d.result[0].contractCreator?.toLowerCase() || null;
+  }
+  return null;
 }
 
 async function fetchBSHolders(addr) {
+  // Try Blockscout v2 first
   const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=20`);
   if (d?.items?.length > 0) return d.items;
+
+  // Try Blockscout v1
   const d2 = await fetchWithProxy(`https://base.blockscout.com/api?module=token&action=getTokenHolders&contractaddress=${addr}&page=1&offset=20`);
   if (Array.isArray(d2?.result) && d2.result.length > 0) {
     return d2.result.map(h => ({
@@ -263,20 +297,64 @@ async function fetchBSHolders(addr) {
       value: h.value
     }));
   }
+
+  // Fallback: Basescan holder list
+  const d3 = await fetchWithProxy(`${BASESCAN_API}?module=token&action=tokenholderlist&contractaddress=${addr}&page=1&offset=20`);
+  if (Array.isArray(d3?.result) && d3.result.length > 0) {
+    return d3.result.map(h => ({
+      address: { hash: h.TokenHolderAddress, is_contract: false },
+      value: h.TokenHolderQuantity
+    }));
+  }
+
   return null;
 }
 
 async function fetchBSContract(addr) {
-  return await fetchWithProxy(`https://base.blockscout.com/api/v2/smart-contracts/${addr}`);
+  // Try Blockscout v2
+  const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/smart-contracts/${addr}`);
+  if (d?.name || d?.is_verified !== undefined) return d;
+
+  // Fallback: Basescan getsourcecode
+  const d2 = await fetchWithProxy(`${BASESCAN_API}?module=contract&action=getsourcecode&address=${addr}`);
+  if (d2?.status === '1' && d2?.result?.[0]) {
+    const r = d2.result[0];
+    return {
+      name: r.ContractName,
+      is_verified: r.SourceCode && r.SourceCode !== '',
+      compiler_version: r.CompilerVersion,
+      abi: r.ABI !== 'Contract source code not verified' ? r.ABI : null,
+    };
+  }
+  return null;
 }
 
 async function fetchBSAddress(addr) {
-  return await fetchWithProxy(`https://base.blockscout.com/api/v2/addresses/${addr}`);
+  const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/addresses/${addr}`);
+  if (d) return d;
+
+  // Fallback: get basic info from Basescan
+  const d2 = await fetchWithProxy(`${BASESCAN_API}?module=account&action=txlist&address=${addr}&page=1&offset=1&sort=asc`);
+  if (d2?.status === '1') {
+    return { transaction_count: null, is_contract: false };
+  }
+  return null;
 }
 
 async function fetchBSTxs(addr) {
   const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/addresses/${addr}/transactions?limit=10`);
-  return d?.items || null;
+  if (d?.items) return d.items;
+
+  // Fallback: Basescan
+  const d2 = await fetchWithProxy(`${BASESCAN_API}?module=account&action=txlist&address=${addr}&page=1&offset=10&sort=desc`);
+  if (d2?.status === '1' && Array.isArray(d2.result)) {
+    return d2.result.map(t => ({
+      hash: t.hash,
+      type: 'call',
+      timestamp: new Date(parseInt(t.timeStamp) * 1000).toISOString(),
+    }));
+  }
+  return null;
 }
 
 // ═══════════════════════════════════════════════════
@@ -402,18 +480,39 @@ async function readAllData(addr) {
 }
 
 async function readTokenRPC(addr) {
-  const [supplyHex, ownerHex, verifiedHex, decimalsHex, nameHex, symbolHex] = await rpcBatch([
+  // Try multiple isVerified selectors — Clanker uses different selectors across versions
+  // 0xbdda81d9 = keccak256("isVerified()")[0:4]
+  // 0x893d20e8 = getOwner() — wrong but was in old code
+  const ISVERIFIED_SELECTORS = ['0xbdda81d9', '0xfe9fbb80', '0x893d20e8'];
+
+  const [supplyHex, ownerHex, decimalsHex, nameHex, symbolHex,
+         ver1, ver2, ver3] = await rpcBatch([
     { to: addr, data: SEL.totalSupply },
     { to: addr, data: SEL.owner },
-    { to: addr, data: SEL.isVerified },
     { to: addr, data: SEL.decimals },
     { to: addr, data: SEL.name },
     { to: addr, data: SEL.symbol },
+    { to: addr, data: ISVERIFIED_SELECTORS[0] },
+    { to: addr, data: ISVERIFIED_SELECTORS[1] },
+    { to: addr, data: ISVERIFIED_SELECTORS[2] },
   ]);
+
+  // Use first isVerified selector that returns a valid bool (not null/0x)
+  const verHexes = [ver1, ver2, ver3];
+  let isVerified = null;
+  for (const v of verHexes) {
+    if (v && v !== '0x' && v.length >= 66) {
+      const decoded = decodeBool(v);
+      if (decoded !== null) { isVerified = decoded; break; }
+    }
+  }
+
+  console.log('isVerified probe:', { ver1, ver2, ver3, isVerified });
+
   return {
     totalSupply: decodeUint(supplyHex),
     owner: ownerHex ? decodeAddr(ownerHex) : null,
-    isVerified: decodeBool(verifiedHex),
+    isVerified,
     decimals: decimalsHex ? parseInt(decimalsHex, 16) : 18,
     name: decodeString(nameHex),
     symbol: decodeString(symbolHex),
@@ -480,28 +579,32 @@ async function startScan() {
     setStep('dex','running');
     setStep('token','running');
 
-    const [goplus, pairs, tokenInfo] = await Promise.all([
+    const [goplus, pairs, tokenInfo, contractCreator] = await Promise.all([
       fetchGoPlus(addr),
       fetchDex(addr),
       fetchBSToken(addr),
+      fetchContractCreator(addr),
     ]);
 
     setStep('goplus', goplus ? 'done' : 'err', goplus ? 'OK' : 'Tidak tersedia / CORS');
     setStep('dex', pairs?.length ? 'done' : 'err', pairs?.length ? `${pairs.length} pair` : 'Tidak ada pair');
-    setStep('token', tokenInfo ? 'done' : 'err', tokenInfo?.name || 'Tidak ada data');
+    setStep('token', tokenInfo ? 'done' : 'err', tokenInfo?.name || rpcData?.name || 'Tidak ada data');
 
     setStep('holders','running');
     const holders = await fetchBSHolders(addr);
-    setStep('holders', holders ? 'done' : 'err', holders ? `${holders.length} holder` : 'Gagal');
+    setStep('holders', holders ? 'done' : 'err', holders ? `${holders.length} holder` : 'Gagal (token baru?)');
 
     setStep('contract','running');
     const contractInfo = await fetchBSContract(addr);
     setStep('contract','done', contractInfo?.is_verified ? 'Source verified ✓' : 'Tidak terverifikasi');
 
     setStep('deployer','running');
-    const deployerAddr = tokenInfo?.creator_address_hash
-      || goplus?.creator_address
+    // contractCreator dari Basescan = factory address yang deploy token
+    // goplus.creator_address = EOA yang meminta deploy (original admin)
+    // allData.originalAdmin = original admin dari on-chain
+    const deployerAddr = goplus?.creator_address
       || allData?.originalAdmin
+      || tokenInfo?.creator_address_hash
       || null;
     let deployerInfo = null, deployerTxs = null;
     if (deployerAddr) {
@@ -539,7 +642,8 @@ async function startScan() {
     setStep('score','running');
     const analysis = computeScore({
       addr, rpcData, allData, goplus, pairs, tokenInfo,
-      holders, contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal, deployerNonce
+      holders, contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal, deployerNonce,
+      contractCreator
     });
     setStep('score','done', `score ${analysis.score} · ${analysis.totalFlags} flag`);
 
@@ -556,7 +660,8 @@ async function startScan() {
 // BANKR SKILL: RISK SCORING ENGINE
 // ═══════════════════════════════════════════════════
 function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
-    holders, contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal, deployerNonce }) {
+    holders, contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal, deployerNonce,
+    contractCreator }) {
   const R = [], Y = [], G = [], I = [];
   let score = 0;
   const add = (list, msg, pts=0) => { list.push(msg); score += pts; };
@@ -568,49 +673,53 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   
   
   
-  // Pengecekan Clanker yang BENAR dan AKURAT
-  // Factory addresses Clanker di Base - INI adalah creator token, bukan deployer wallet!
+  // ─────────────────────────────────────────────
+  // DETEKSI CLANKER — multi-layer, prioritas tinggi ke rendah
+  // ─────────────────────────────────────────────
   const CLANKER_FACTORIES = {
     '0xe85a59c628f7d27878aceb4bf3b35733630083a9': 'Clanker v4',
     '0x2a787b2362021cc3eea3c24c4748a6cd5b687382': 'Clanker v3.1.0',
     '0x256dddd03b9b94098939763dc0b4d4b732fb6bb1': 'Doppler/Clanker v1-v2',
-    '0x1a0ad19a73752ea416c116c4c2c62c3e414c5b36': 'Clanker Old'
+    '0x1a0ad19a73752ea416c116c4c2c62c3e414c5b36': 'Clanker Old',
   };
 
-  // AMBIL CREATOR HASH dari Blockscout - INI factory address untuk token dari factory
-  const creatorHash = (tokenInfo?.creator_address_hash || contractInfo?.creator_address_hash || '').toLowerCase();
+  // Layer 1: contractCreator dari Basescan (paling akurat - factory address)
+  const creatorFromBasescan = (contractCreator || '').toLowerCase();
+  // Layer 2: creator_address_hash dari Blockscout token API
+  const creatorFromBlockscout = (tokenInfo?.creator_address_hash || '').toLowerCase();
+  // Gabungkan — pakai yang ada
+  const creatorHash = creatorFromBasescan || creatorFromBlockscout || '';
 
-  // Cek 1: Token dibuat via Clanker FACTORY (paling akurat)
-  const isCreatedViaClankerFactory = Object.keys(CLANKER_FACTORIES).includes(creatorHash);
+  const isCreatedViaClankerFactory = !!CLANKER_FACTORIES[creatorHash];
   const clankerFactoryName = CLANKER_FACTORIES[creatorHash] || null;
 
-  // Cek 2: allData() context field mengandung "clanker"
+  // Layer 3: allData().context mengandung "clanker"
   const hasClankerContext = allData?.context?.toLowerCase?.().includes('clanker') || false;
 
-  // Cek 3: ABI Clanker-style (punya allData, originalAdmin, isVerified)
+  // Layer 4: allData() berhasil dipanggil (data ada) = ini Clanker
+  const hasAllData = allData !== null;
+
+  // Layer 5: isVerified() berhasil return bool (true/false, bukan null)
+  // Fungsi ini hanya ada di Clanker token
+  const hasIsVerifiedFunction = rpcData?.isVerified === true || rpcData?.isVerified === false;
+
+  // Layer 6: ABI punya allData + originalAdmin
   let isClankerAbi = false;
   if (contractInfo?.abi) {
     try {
       const abiStr = typeof contractInfo.abi === 'string' ? contractInfo.abi.toLowerCase() : JSON.stringify(contractInfo.abi).toLowerCase();
-      isClankerAbi = abiStr.includes('"alldata"') && abiStr.includes('"originaladmin"');
-    } catch(e) { console.error('ABI Parse Error', e); }
+      isClankerAbi = abiStr.includes('alldata') && abiStr.includes('originaladmin');
+    } catch(e) {}
   }
 
-  // Cek 4: isVerified() berhasil dipanggil dan return value (berarti fungsi ada)
-  const hasIsVerifiedFunction = rpcData?.isVerified !== null && rpcData?.isVerified !== undefined;
+  // GABUNGKAN — token dianggap Clanker jika ada SALAH SATU sinyal
+  const isClanker = isCreatedViaClankerFactory || hasAllData || hasIsVerifiedFunction || hasClankerContext || isClankerAbi;
 
-  // GABUNGKAN semua sinyal
-  const isClanker = isCreatedViaClankerFactory || hasClankerContext || isClankerAbi;
-
-  // LOG untuk debugging
   console.log('Clanker Detection:', {
-    creatorHash,
-    isCreatedViaClankerFactory,
-    clankerFactoryName,
-    hasClankerContext,
-    isClankerAbi,
-    hasIsVerifiedFunction,
-    isClanker
+    creatorFromBasescan, creatorFromBlockscout, creatorHash,
+    isCreatedViaClankerFactory, clankerFactoryName,
+    hasAllData, hasIsVerifiedFunction, hasClankerContext, isClankerAbi,
+    isClanker, isVerifiedValue: rpcData?.isVerified
   });
 
 
@@ -628,19 +737,23 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   // Scoring untuk Clanker token
   if (isClanker) {
     if (isCreatedViaClankerFactory) {
-      add(G, `Token dibuat via Clanker Factory resmi: ${clankerFactoryName || creatorHash.slice(0,10)}…`);
-    } else {
-      add(Y, 'ABI bergaya Clanker tetapi TIDAK dibuat via factory resmi — kemungkinan fake/clone', 1);
+      // Konfirmasi penuh via Basescan - factory resmi
+      add(G, `Token dibuat via Clanker Factory resmi: ${clankerFactoryName} ✓`);
+    } else if (hasIsVerifiedFunction || hasAllData) {
+      // Sinyal kuat dari RPC — Clanker, tapi factory belum bisa dikonfirmasi (token baru?)
+      add(I, 'Token terdeteksi Clanker via RPC (isVerified/allData tersedia), factory belum terkonfirmasi di Basescan (mungkin terlalu baru)');
+    } else if (hasClankerContext || isClankerAbi) {
+      // Sinyal dari context/ABI saja
+      add(Y, 'Token bergaya Clanker (dari context/ABI) tapi factory & isVerified belum terkonfirmasi', 1);
     }
 
     if (rpcData.isVerified === true) {
-      add(G, 'isVerified() = true — terverifikasi di platform Clanker ✓');
+      add(G, 'isVerified() = true — token telah diverifikasi di platform Clanker ✓');
     } else if (rpcData.isVerified === false) {
-      add(Y, 'isVerified() = false — belum diverifikasi di platform Clanker', 1);
+      add(Y, 'isVerified() = false — token belum diverifikasi oleh platform Clanker', 1);
+    } else if (hasIsVerifiedFunction === false && isClanker) {
+      add(Y, 'isVerified() tidak merespon — mungkin Clanker versi lama atau selector berbeda', 1);
     }
-  } else if (hasIsVerifiedFunction) {
-    // Punya isVerified tapi bukan Clanker - mencurigakan
-    add(Y, 'isVerified() function ada tapi token bukan dari Clanker factory — clone/imitation?', 1);
   }
 
   if (goplus) {
@@ -774,6 +887,7 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   return {
     addr, verdict, score, totalFlags, isClanker,
     isCreatedViaClankerFactory, clankerFactoryName, creatorHash,
+    hasIsVerifiedFunction,
     flags: { red: R, yellow: Y, green: G, info: I },
     rpcData, allData, goplus, pairs, pair,
     tokenInfo, holders, concData, contractInfo,
@@ -788,7 +902,8 @@ function renderResults(a) {
   const { addr, verdict, score, totalFlags, flags, rpcData, allData,
     goplus, pairs, pair, tokenInfo, holders, concData,
     contractInfo, deployerInfo, deployerTxs, deployerAddr, deployerEthBal,
-    isClanker, isCreatedViaClankerFactory, clankerFactoryName, creatorHash } = a;
+    isClanker, isCreatedViaClankerFactory, clankerFactoryName, creatorHash,
+    hasIsVerifiedFunction } = a;
 
   if (verdict === 'NOT_CONTRACT') {
     document.getElementById('results').innerHTML = `
@@ -882,44 +997,92 @@ function renderResults(a) {
   const mkFlags = (arr, cls, ico) => arr.map(f =>
     `<div class="flag ${cls}"><span class="f-ic">${ico}</span><span>${f}</span></div>`).join('');
 
-  let allDataHTML = '';
-  if (isClanker) {
-    const factoryBadge = isCreatedViaClankerFactory
-      ? `<span class="tag tg" style="margin-left:8px;">${clankerFactoryName || 'CLANKER FACTORY'}</span>`
+  // Factory badge: confirmed > maybe > not
+  const factoryBadge = isCreatedViaClankerFactory
+    ? `<span class="tag tg" style="margin-left:8px;">${clankerFactoryName}</span>`
+    : hasIsVerifiedFunction
+      ? `<span class="tag ty" style="margin-left:8px;">CLANKER (isVerified)</span>`
       : `<span class="tag ty" style="margin-left:8px;">CLANKER-STYLE</span>`;
 
+  const isVerifiedBadge = rpcData.isVerified === true
+    ? '<span class="tag tg">✓ VERIFIED</span>'
+    : rpcData.isVerified === false
+      ? '<span class="tag tr">✗ NOT VERIFIED</span>'
+      : '<span class="tag be">N/A</span>';
+
+  let allDataHTML = '';
+  if (isClanker) {
     if (allData) {
       allDataHTML = `
-      <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">
-        <span style="color:var(--accent);font-weight:bold;">Token dibuat via Clanker Platform</span>
-        ${factoryBadge}
+      <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+        <span style="color:var(--accent);font-weight:bold;">Token Clanker — Data On-Chain OK</span>
+        <div style="display:flex;gap:6px;">${factoryBadge} ${isVerifiedBadge}</div>
       </div>
       <div class="rpc-grid">
-        <div class="rpc-item"><div class="rpc-key">Original Admin (Deployer)</div><div class="rpc-val info" style="font-size:10px;"><a href="https://basescan.org/address/${allData.originalAdmin}" target="_blank">${allData.originalAdmin.slice(0,10)}…${allData.originalAdmin.slice(-6)}</a></div></div>
-        <div class="rpc-item"><div class="rpc-key">Current Admin</div><div class="rpc-val info" style="font-size:10px;"><a href="https://basescan.org/address/${allData.admin}" target="_blank">${allData.admin.slice(0,10)}…${allData.admin.slice(-6)}</a></div></div>
-        <div class="rpc-item"><div class="rpc-key">Factory Contract</div><div class="rpc-val ${isCreatedViaClankerFactory?'ok':'warn'}" style="font-size:10px;">${isCreatedViaClankerFactory ? `<a href="https://basescan.org/address/${creatorHash}" target="_blank">${clankerFactoryName}</a>` : 'Tidak terdeteksi'}</div></div>
-        <div class="rpc-item"><div class="rpc-key">Platform Verified</div><div class="rpc-val ${rpcData.isVerified===true?'ok':rpcData.isVerified===false?'bad':'warn'}">${rpcData.isVerified===true?'Ya ✓':rpcData.isVerified===false?'Tidak ✗':'N/A'}</div></div>
-        <div class="rpc-item"><div class="rpc-key">Image/Logo</div><div class="rpc-val ${allData.image?'ok':'bad'}">${allData.image?'Ada ✓':'Kosong ✗'}</div></div>
-        <div class="rpc-item"><div class="rpc-key">Metadata JSON</div><div class="rpc-val ${allData.metadata?'ok':'bad'}">${allData.metadata?'Ada ✓':'Kosong ✗'}</div></div>
-        <div class="rpc-item" style="grid-column:span 2"><div class="rpc-key">Platform Context</div><div class="rpc-val info">${allData.context||'—'}</div></div>
+        <div class="rpc-item"><div class="rpc-key">Original Admin (Deployer)</div>
+          <div class="rpc-val info" style="font-size:10px;">
+            <a href="https://basescan.org/address/${allData.originalAdmin}" target="_blank">${allData.originalAdmin.slice(0,10)}…${allData.originalAdmin.slice(-6)}</a>
+          </div>
+        </div>
+        <div class="rpc-item"><div class="rpc-key">Current Admin</div>
+          <div class="rpc-val info" style="font-size:10px;">
+            <a href="https://basescan.org/address/${allData.admin}" target="_blank">${allData.admin.slice(0,10)}…${allData.admin.slice(-6)}</a>
+          </div>
+        </div>
+        <div class="rpc-item"><div class="rpc-key">Factory Contract</div>
+          <div class="rpc-val ${isCreatedViaClankerFactory?'ok':'warn'}" style="font-size:10px;">
+            ${isCreatedViaClankerFactory
+              ? `<a href="https://basescan.org/address/${creatorHash}" target="_blank">${clankerFactoryName}</a>`
+              : 'Belum terkonfirmasi (token baru / Basescan belum index)'}
+          </div>
+        </div>
+        <div class="rpc-item"><div class="rpc-key">Platform Verified</div>
+          <div class="rpc-val ${rpcData.isVerified===true?'ok':rpcData.isVerified===false?'bad':'warn'}">
+            ${rpcData.isVerified===true?'Ya ✓':rpcData.isVerified===false?'Tidak ✗':'Tidak ada fungsi'}
+          </div>
+        </div>
+        <div class="rpc-item"><div class="rpc-key">Image/Logo</div>
+          <div class="rpc-val ${allData.image?'ok':'bad'}">${allData.image?'Ada ✓':'Kosong ✗'}</div>
+        </div>
+        <div class="rpc-item"><div class="rpc-key">Metadata JSON</div>
+          <div class="rpc-val ${allData.metadata?'ok':'bad'}">${allData.metadata?'Ada ✓':'Kosong ✗'}</div>
+        </div>
+        <div class="rpc-item" style="grid-column:span 2"><div class="rpc-key">Platform Context</div>
+          <div class="rpc-val info">${allData.context||'—'}</div>
+        </div>
       </div>`;
     } else {
+      // Clanker detected but allData() returned null
+      const reason = isCreatedViaClankerFactory
+        ? `Dibuat via <b>${clankerFactoryName}</b> tapi allData() tidak ada → mungkin versi lama.`
+        : hasIsVerifiedFunction
+          ? `isVerified() ada (Clanker-style), tapi allData() tidak merespon. Kemungkinan Clanker v3 atau selector berbeda.`
+          : `Terdeteksi via ABI/context sebagai Clanker-style.`;
+
       allDataHTML = `
-      <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">
-        <span style="color:var(--yellow);font-weight:bold;">Token bergaya Clanker tapi allData() tidak tersedia</span>
-        ${factoryBadge}
+      <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+        <span style="color:var(--yellow);font-weight:bold;">Token Clanker terdeteksi — allData() tidak tersedia</span>
+        <div style="display:flex;gap:6px;">${factoryBadge} ${isVerifiedBadge}</div>
       </div>
-      <div style="font-size:12px;color:var(--muted);">
-        ${isCreatedViaClankerFactory
-          ? 'Token dibuat via Clanker Factory tetapi fungsi <code>allData()</code> tidak ada (mungkin versi lama).'
-          : 'ABI memiliki pola Clanker-style (originalAdmin/isVerified) tetapi bukan dari factory resmi.'}
-      </div>`;
+      <div style="font-size:12px;line-height:1.7;color:var(--muted);">${reason}</div>
+      ${rpcData.isVerified !== null ? `
+      <div class="rpc-grid" style="margin-top:10px;">
+        <div class="rpc-item"><div class="rpc-key">Platform Verified (isVerified)</div>
+          <div class="rpc-val ${rpcData.isVerified===true?'ok':rpcData.isVerified===false?'bad':'warn'}">
+            ${rpcData.isVerified===true?'Ya ✓':rpcData.isVerified===false?'Tidak ✗':'N/A'}
+          </div>
+        </div>
+        ${isCreatedViaClankerFactory ? `
+        <div class="rpc-item"><div class="rpc-key">Factory</div>
+          <div class="rpc-val ok" style="font-size:10px;">${clankerFactoryName}</div>
+        </div>` : ''}
+      </div>` : ''}`;
     }
   } else {
     allDataHTML = `
-    <div style="color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:space-between;">
-      <span><b style="color:var(--text);">Bukan token Clanker.</b> Token ini regular ERC-20 tanpa integrasi Clanker.</span>
-      <span class="tag be" style="margin-left:8px;">REGULAR ERC-20</span>
+    <div style="color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <span><b style="color:var(--text);">Bukan token Clanker.</b> Regular ERC-20 tanpa integrasi Clanker.</span>
+      <span class="tag be">REGULAR ERC-20</span>
     </div>`;
   }
 
