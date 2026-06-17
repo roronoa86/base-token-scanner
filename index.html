@@ -466,17 +466,19 @@ function decodeString(hex) {
 }
 
 function decodeBool(hex) {
-  // A valid ABI-encoded bool is 32 bytes (64 hex chars + "0x") where
-  // the value MUST be exactly 0 (false) or 1 (true) in the last byte.
-  // Anything else is NOT a bool and should return null (prevents false positives
-  // when a non-Clanker contract coincidentally responds to the isVerified selector).
+  // A valid ABI-encoded bool is 32 bytes = 64 hex chars.
+  // Valid values: 0x0000...0000 (false) or 0x0000...0001 (true).
+  // The 64-char value must be 63 zeros + '0' (false) or 63 zeros + '1' (true).
+  // Anything else means the response is NOT a bool → return null.
+  // This prevents false positives when a non-Clanker contract coincidentally
+  // responds to the isVerified() selector with a non-bool value.
   if (!hex || hex === '0x') return null;
   const raw = hex.startsWith('0x') ? hex.slice(2) : hex;
   if (raw.length < 64) return null;
-  const last32 = raw.slice(-64);
-  // All bytes except last must be zero
-  if (!/^0{62}[01]$/.test(last32)) return null;
-  return last32.slice(-1) === '1';
+  const last64 = raw.slice(-64); // last 32 bytes = 64 hex chars
+  // Must be 63 zeros followed by exactly '0' or '1'
+  if (!/^0{63}[01]$/.test(last64)) return null;
+  return last64[63] === '1';
 }
 
 function decodeUint(hex) {
