@@ -301,12 +301,14 @@ async function fetchDex(addr) {
 }
 
 async function fetchBSToken(addr) {
-  // Try Blockscout v2 first
-  const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}`);
+  // Try Blockscout v2 and Basescan in parallel (faster for non-Clanker tokens)
+  const [d, d2] = await Promise.all([
+    fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}`),
+    fetchWithProxy(`${BASESCAN_API}?module=token&action=tokeninfo&contractaddress=${addr}`)
+  ]);
+  
   if (d?.name) return d;
 
-  // Fallback: Basescan tokeninfo
-  const d2 = await fetchWithProxy(`${BASESCAN_API}?module=token&action=tokeninfo&contractaddress=${addr}`);
   if (d2?.status === '1' && d2?.result?.[0]) {
     const t = d2.result[0];
     return {
@@ -332,12 +334,16 @@ async function fetchContractCreator(addr) {
 }
 
 async function fetchBSHolders(addr) {
-  // Try Blockscout v2 first
-  const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=20`);
+  // Try all three endpoints in parallel for speed
+  const [d, d2, d3] = await Promise.all([
+    fetchWithProxy(`https://base.blockscout.com/api/v2/tokens/${addr}/holders?limit=20`),
+    fetchWithProxy(`https://base.blockscout.com/api?module=token&action=getTokenHolders&contractaddress=${addr}&page=1&offset=20`),
+    fetchWithProxy(`${BASESCAN_API}?module=token&action=tokenholderlist&contractaddress=${addr}&page=1&offset=20`)
+  ]);
+  
+  // Return first successful response
   if (d?.items?.length > 0) return d.items;
 
-  // Try Blockscout v1
-  const d2 = await fetchWithProxy(`https://base.blockscout.com/api?module=token&action=getTokenHolders&contractaddress=${addr}&page=1&offset=20`);
   if (Array.isArray(d2?.result) && d2.result.length > 0) {
     return d2.result.map(h => ({
       address: { hash: h.address, is_contract: false },
@@ -345,8 +351,6 @@ async function fetchBSHolders(addr) {
     }));
   }
 
-  // Fallback: Basescan holder list
-  const d3 = await fetchWithProxy(`${BASESCAN_API}?module=token&action=tokenholderlist&contractaddress=${addr}&page=1&offset=20`);
   if (Array.isArray(d3?.result) && d3.result.length > 0) {
     return d3.result.map(h => ({
       address: { hash: h.TokenHolderAddress, is_contract: false },
@@ -358,12 +362,14 @@ async function fetchBSHolders(addr) {
 }
 
 async function fetchBSContract(addr) {
-  // Try Blockscout v2
-  const d = await fetchWithProxy(`https://base.blockscout.com/api/v2/smart-contracts/${addr}`);
+  // Try Blockscout v2 and Basescan in parallel
+  const [d, d2] = await Promise.all([
+    fetchWithProxy(`https://base.blockscout.com/api/v2/smart-contracts/${addr}`),
+    fetchWithProxy(`${BASESCAN_API}?module=contract&action=getsourcecode&address=${addr}`)
+  ]);
+  
   if (d?.name || d?.is_verified !== undefined) return d;
 
-  // Fallback: Basescan getsourcecode
-  const d2 = await fetchWithProxy(`${BASESCAN_API}?module=contract&action=getsourcecode&address=${addr}`);
   if (d2?.status === '1' && d2?.result?.[0]) {
     const r = d2.result[0];
     return {
@@ -407,22 +413,24 @@ async function fetchBSTxs(addr) {
 // ═══════════════════════════════════════════════════
 // BASE RPC — eth_call helper
 // ═══════════════════════════════════════════════════
-async function rpcCall(to, data) {
+async function rpcCall(to, data, timeoutMs = 2000) {
+  // Fast timeout (2s) by default for Clanker-specific functions
+  // Non-Clanker tokens will timeout quickly and return null gracefully
   try {
-    const body = { jsonrpc:'2.0', method:'eth_call', id:1,
-      params:[{ to, data }, 'latest'] };
-    const r = await fetch(BASE_RPC, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(8000)
-    });
-    const d = await r.json();
-    return d.result || null;
+  const body = { jsonrpc:'2.0', method:'eth_call', id:1,
+  params:[{ to, data }, 'latest'] };
+  const r = await fetch(BASE_RPC, {
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body: JSON.stringify(body),
+  signal: AbortSignal.timeout(timeoutMs)
+  });
+  const d = await r.json();
+  return d.result || null;
   } catch (_) { return null; }
 }
 
-async function rpcBatch(calls) {
+async function rpcBatchWithTimeout(calls, timeoutMs = 10000) {
   try {
     const body = calls.map((c, i) => ({
       jsonrpc:'2.0', method:'eth_call', id:i+1,
@@ -432,11 +440,11 @@ async function rpcBatch(calls) {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(timeoutMs)
     });
     const arr = await r.json();
     if (!Array.isArray(arr)) {
-      console.log("[v0] RPC Error/Ditolak (Bukan Array):", arr);
+      console.log("[v0] RPC Error (non-array response):", arr);
       return calls.map(() => null);
     }
     return calls.map((_, i) => {
@@ -444,9 +452,14 @@ async function rpcBatch(calls) {
       return res ? (res.result || null) : null;
     });
   } catch (e) {
-    console.log("[v0] RPC Catch Error:", e.message);
-    return calls.map(() => null);
+    console.log("[v0] RPC Error (timeout or network):", e.message);
+    throw e; // Re-throw to let caller handle gracefully
   }
+}
+
+// Backward compatibility
+async function rpcBatch(calls) {
+  return rpcBatchWithTimeout(calls, 10000);
 }
 
 function decodeString(hex) {
@@ -545,32 +558,53 @@ async function readAllData(addr) {
 
 async function readTokenRPC(addr) {
   // 0x80007e83 = keccak256("isVerified()")[0:4] — VERIFIED CORRECT
-  // Previous fallbacks 0xbdda81d9 and 0xfe9fbb80 were wrong selectors — removed.
-  // decodeBool() now validates the response is actually a bool (not a false positive).
-  const [supplyHex, ownerHex, decimalsHex, nameHex, symbolHex, verHex] = await rpcBatch([
-    { to: addr, data: SEL.totalSupply },
-    { to: addr, data: SEL.owner },
-    { to: addr, data: SEL.decimals },
-    { to: addr, data: SEL.name },
-    { to: addr, data: SEL.symbol },
-    { to: addr, data: SEL.isVerified },
-  ]);
+  // Split into two calls:
+  // 1. Fast call (5s timeout) for basic ERC-20 data (supply, owner, decimals, name, symbol)
+  // 2. Parallel call (3s timeout) for isVerified() which is Clanker-specific
+  try {
+    const [supplyHex, ownerHex, decimalsHex, nameHex, symbolHex] = await rpcBatchWithTimeout([
+      { to: addr, data: SEL.totalSupply },
+      { to: addr, data: SEL.owner },
+      { to: addr, data: SEL.decimals },
+      { to: addr, data: SEL.name },
+      { to: addr, data: SEL.symbol },
+    ], 5000); // 5s for ERC-20 basics
 
-  let isVerified = null;
-  if (verHex && verHex !== '0x' && verHex.length >= 66) {
-    isVerified = decodeBool(verHex); // null if not a valid bool (non-Clanker token)
+    let isVerified = null;
+    try {
+      // Try isVerified() with shorter timeout (Clanker-only, no need to wait too long)
+      const [verHex] = await rpcBatchWithTimeout([
+        { to: addr, data: SEL.isVerified },
+      ], 3000);
+      
+      if (verHex && verHex !== '0x' && verHex.length >= 66) {
+        isVerified = decodeBool(verHex); // null if not a valid bool (non-Clanker token)
+      }
+      console.log('[v0] isVerified probe:', { verHex, decoded: isVerified });
+    } catch (e) {
+      console.log('[v0] isVerified() timeout/error (OK for non-Clanker):', e.message);
+      // isVerified stays null for non-Clanker tokens
+    }
+
+    return {
+      totalSupply: decodeUint(supplyHex),
+      owner: ownerHex ? decodeAddr(ownerHex) : null,
+      isVerified,
+      decimals: decimalsHex ? (parseInt(decimalsHex, 16) || 18) : 18,
+      name: decodeString(nameHex),
+      symbol: decodeString(symbolHex),
+    };
+  } catch (e) {
+    console.log('[v0] readTokenRPC failed:', e.message);
+    return {
+      totalSupply: null,
+      owner: null,
+      isVerified: null,
+      decimals: 18,
+      name: '',
+      symbol: '',
+    };
   }
-
-  console.log('[v0] isVerified probe:', { verHex, decoded: isVerified });
-
-  return {
-    totalSupply: decodeUint(supplyHex),
-    owner: ownerHex ? decodeAddr(ownerHex) : null,
-    isVerified,
-    decimals: decimalsHex ? (parseInt(decimalsHex, 16) || 18) : 18,
-    name: decodeString(nameHex),
-    symbol: decodeString(symbolHex),
-  };
 }
 
 async function readBalance(token, wallet) {
@@ -808,12 +842,17 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     //                       LP CANNOT be removed by admin → SAFE TO TRADE
     // isVerified = false → Token deployed via 3rd-party app (Bankr, WarpCast bot, etc.)
     //                       Still a legitimate Clanker token but LP status needs separate check
+    // isVerified = null  → RPC timeout or non-Clanker token
     if (rpcData.isVerified === true) {
       add(G, 'isVerified() = TRUE — Token resmi clanker.world ✓ LP di Uniswap v4 pool Clanker (tidak bisa di-rug)', 0);
     } else if (rpcData.isVerified === false) {
       add(Y, 'isVerified() = FALSE — Deploy via 3rd-party app (Bankr/WarpCast). Bukan dari clanker.world langsung. Periksa LP.', 1);
+    } else if (hasIsVerifiedFunction) {
+      // isVerified function exists but returned error/timeout—still Clanker but need manual check
+      add(I, 'isVerified() ada di contract tapi timeout/error — likely token baru atau permasalahan RPC');
     } else {
-      add(Y, 'isVerified() tidak merespon — Clanker versi lama atau data tidak lengkap', 1);
+      // Non-Clanker token, no isVerified() function
+      add(I, 'Token bukan Clanker atau terlalu baru');
     }
 
     // allData() metadata check
@@ -1191,7 +1230,7 @@ function renderResults(a) {
       const isLocked = h.locked === 1 || h.locked === '1';
       const isDead = (h.address||'').toLowerCase() === '0x000000000000000000000000000000000000dead';
       const badgeColor = isDead ? 'var(--muted)' : isLocked ? 'var(--low)' : 'var(--red)';
-      const badgeLabel = isDead ? '🔥 BURNED' : isLocked ? '🔒 LOCKED' : '⚠ FREE';
+      const badgeLabel = isDead ? '🔥 BURNED' : isLocked ? '���� LOCKED' : '⚠ FREE';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;">
         <span style="color:var(--muted);font-family:monospace;"><a href="https://basescan.org/address/${h.address||''}" target="_blank" style="color:var(--muted);">${addr_s}</a> <span style="color:#fff;">${tag}</span></span>
         <div style="display:flex;gap:8px;align-items:center;">
