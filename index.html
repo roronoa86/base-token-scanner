@@ -849,18 +849,18 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     //                       Still a legitimate Clanker token but LP status needs separate check
     // isVerified = null  → RPC timeout or non-Clanker token
     if (rpcData.isVerified === true) {
-      add(G, 'isVerified() = TRUE — Token resmi clanker.world ✓ LP di Uniswap v4 pool Clanker (tidak bisa di-rug)', 0);
+      add(G, 'isVerified() = TRUE — Token resmi dari clanker.world web interface ✓', 0);
     } else if (rpcData.isVerified === false && isFarcasterClanker) {
-      // Farcaster miniapp Clanker tokens also have isVerified=FALSE but are official Clanker deployments
-      add(G, 'isVerified() = FALSE (Farcaster Clanker miniapp) ✓ LP management via Clanker protocol', 0);
+      // Farcaster miniapp Clanker tokens: official tool, just deployed via miniapp not web interface
+      add(Y, 'isVerified() = FALSE — Deploy via Farcaster Clanker miniapp (official tool, bukan clanker.world langsung). Periksa LP untuk memastikan aman.', 0);
     } else if (rpcData.isVerified === false) {
-      add(Y, 'isVerified() = FALSE — Deploy via 3rd-party app (Bankr/WarpCast/Doppler). Bukan dari clanker.world langsung. Periksa LP.', 1);
+      add(Y, 'isVerified() = FALSE — Deploy via 3rd-party app (Bankr/WarpCast/Doppler). Bukan dari clanker.world langsung. WAJIB periksa LP lock status.', 2);
     } else if (hasIsVerifiedFunction) {
       // isVerified function exists but returned error/timeout—still Clanker but need manual check
-      add(I, 'isVerified() ada di contract tapi timeout/error — likely token baru atau permasalahan RPC');
+      add(I, 'isVerified() callable tapi no response — token sudah kena timeout, coba scan ulang');
     } else {
       // Non-Clanker token, no isVerified() function
-      add(I, 'Token bukan Clanker atau terlalu baru');
+      add(I, 'Token bukan Clanker (tidak ada isVerified function)');
     }
 
     // allData() metadata check
@@ -970,10 +970,11 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     else add(G, 'Tidak ada fungsi berbahaya di ABI ✓');
   } else if (isClanker) {
     // Clanker tokens: ABI availability separate from source code verification
+    // "tidak terverifikasi" is normal for Clanker factory pattern
     if (hasValidAbi) {
-      add(G, 'ABI tersedia (Clanker) — dapat di-scan fungsi berbahaya ✓');
+      add(G, 'ABI dapat di-scan (Clanker factory) ✓ — "tidak terverifikasi" di Basescan normal untuk factory pattern');
     } else {
-      add(I, 'ABI tidak fully tersedia di Basescan — tapi Clanker factory bytecode standard');
+      add(I, 'ABI tidak fully tersedia — tapi Clanker factory bytecode sudah standard, aman');
     }
   } else {
     add(Y, 'ABI tidak tersedia — tidak bisa scan fungsi berbahaya', 1);
@@ -984,7 +985,7 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   // ─────────────────────────────────────────────
   // pair sudah di-declare di awal computeScore (line 763)
   if (!pair) {
-    add(R, 'Tidak ada pair trading di DexScreener (Base)', 2);
+    add(I, 'Tidak ada pair di DexScreener (Base) — Token terlalu baru, DexScreener masih index. Tunggu 15-30 menit lalu scan ulang.', 0);
   } else {
     const liq = pair.liquidity?.usd || 0;
     const age = pair.pairCreatedAt ? Math.floor((Date.now() - pair.pairCreatedAt) / 86400000) : null;
@@ -1177,7 +1178,7 @@ function renderResults(a) {
       </tr>`;
     }).join('');
   } else {
-    holdersHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">Data holder tidak tersedia</td></tr>';
+    holdersHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:16px;">Data holder tidak tersedia — Token terlalu baru atau API tidak response. Coba scan ulang dalam 10 menit.</td></tr>';
   }
 
   const mkFlags = (arr, cls, ico) => arr.map(f =>
