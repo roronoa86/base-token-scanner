@@ -436,7 +436,7 @@ async function rpcBatch(calls) {
     });
     const arr = await r.json();
     if (!Array.isArray(arr)) {
-      console.error("RPC Error/Ditolak (Bukan Array):", arr);
+      console.log("[v0] RPC Error/Ditolak (Bukan Array):", arr);
       return calls.map(() => null);
     }
     return calls.map((_, i) => {
@@ -444,7 +444,7 @@ async function rpcBatch(calls) {
       return res ? (res.result || null) : null;
     });
   } catch (e) {
-    console.error("RPC Catch Error:", e);
+    console.log("[v0] RPC Catch Error:", e.message);
     return calls.map(() => null);
   }
 }
@@ -561,7 +561,7 @@ async function readTokenRPC(addr) {
     isVerified = decodeBool(verHex); // null if not a valid bool (non-Clanker token)
   }
 
-  console.log('isVerified probe:', { verHex, decoded: isVerified });
+  console.log('[v0] isVerified probe:', { verHex, decoded: isVerified });
 
   return {
     totalSupply: decodeUint(supplyHex),
@@ -583,17 +583,20 @@ async function readBalance(token, wallet) {
 // MAIN SCAN
 // ═══════════════════════════════════════════════════
 async function startScan() {
+  console.log('[v0] startScan() called');
   const raw = document.getElementById('addrIn').value.trim();
   if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
     showErr('Format alamat tidak valid. Harus 0x + 40 karakter hex.');
     return;
   }
   const addr = raw.toLowerCase();
+  console.log('[v0] Starting scan for:', addr);
 
   document.getElementById('errBox').style.display = 'none';
   document.getElementById('results').style.display = 'none';
   document.getElementById('results').innerHTML = '';
   document.getElementById('prog').style.display = 'block';
+  console.log('[v0] Progress box shown');
   document.getElementById('stepList').innerHTML = '';
   document.getElementById('scanBtn').disabled = true;
   stepEls = {};
@@ -710,7 +713,7 @@ async function startScan() {
   }
 }
 
-// ═══════════════════════════════════════════════════
+// ══════════════════════════════��════════════════════
 // BANKR SKILL: RISK SCORING ENGINE
 // ═══════════════════════════════════════════════════
 function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
@@ -720,6 +723,11 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   let score = 0;
   const add = (list, msg, pts=0) => { list.push(msg); score += pts; };
 
+  // ─────────────────────────────────────────────
+  // STEP 0: GET PRIMARY PAIR
+  // ─────────────────────────────────────────────
+  const pair = pairs && pairs.length > 0 ? pairs[0] : null; // Pick the largest / primary pair
+  
   // ─────────────────────────────────────────────
   // STEP 1: CLANKER DETECTION — multi-layer
   // ─────────────────────────────────────────────
@@ -732,22 +740,34 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
 
   const hasClankerContext     = allData?.context?.toLowerCase?.().includes('clanker') || false;
   const hasAllData            = allData !== null;
-  const hasIsVerifiedFunction = rpcData?.isVerified === true || rpcData?.isVerified === false;
+  // isVerified function exists if we got ANY response (null means not callable, true/false means callable)
+  const hasIsVerifiedFunction = rpcData?.isVerified !== null && rpcData?.isVerified !== undefined;
 
   let isClankerAbi = false;
   if (contractInfo?.abi) {
     try {
-      const abiStr = typeof contractInfo.abi === 'string'
-        ? contractInfo.abi.toLowerCase()
-        : JSON.stringify(contractInfo.abi).toLowerCase();
+      let abiStr = '';
+      if (typeof contractInfo.abi === 'string') {
+        // Try to parse string ABI first (might be JSON string from Basescan)
+        try {
+          const parsed = JSON.parse(contractInfo.abi);
+          abiStr = JSON.stringify(parsed).toLowerCase();
+        } catch {
+          abiStr = contractInfo.abi.toLowerCase();
+        }
+      } else if (Array.isArray(contractInfo.abi)) {
+        abiStr = JSON.stringify(contractInfo.abi).toLowerCase();
+      }
       isClankerAbi = abiStr.includes('alldata') && abiStr.includes('originaladmin');
-    } catch(e) {}
+    } catch(e) {
+      console.log('[v0] ABI parse error:', e.message);
+    }
   }
 
   // Token = Clanker if ANY layer detects it
   const isClanker = isCreatedViaClankerFactory || hasAllData || hasIsVerifiedFunction || hasClankerContext || isClankerAbi;
 
-  console.log('Clanker Detection:', {
+  console.log('[v0] Clanker Detection:', {
     creatorFromBasescan, creatorFromBlockscout, creatorHash,
     isCreatedViaClankerFactory, clankerFactoryName,
     hasAllData, hasIsVerifiedFunction, hasClankerContext, isClankerAbi,
@@ -764,7 +784,8 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     if (sourceVerified) add(G, 'Source code terverifikasi di explorer ✓');
     else add(I, 'Source code: Clanker factory bytecode — template standar, verifikasi di explorer tidak wajib');
   } else {
-    if (!sourceVerified) add(R, 'Source code kontrak TIDAK terverifikasi di explorer', 2);
+    // Non-Clanker token: source verification IS important
+    if (!sourceVerified) add(Y, 'Source code kontrak TIDAK terverifikasi di explorer', 1);
     else add(G, 'Source code terverifikasi di Blockscout ✓');
   }
 
@@ -937,8 +958,9 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   const supply = rpcData.totalSupply || (tokenInfo?.total_supply ? BigInt(tokenInfo.total_supply) : null);
   if (holders && holders.length > 0 && supply && supply > 0n) {
     const realHolders = holders.filter(h => {
-      const ha = (h.address?.hash || '').toLowerCase();
-      return !POOL_ADDRS.has(ha) && ha !== '0x0000000000000000000000000000000000000000';
+      // h.address can be: {hash: "..."} or just a string
+      const ha = ((h.address?.hash || h.address) || '').toString().toLowerCase();
+      return !POOL_ADDRS.has(ha) && ha !== '0x0000000000000000000000000000000000000000' && ha.length > 0;
     });
     let top3 = 0n, top10 = 0n;
     realHolders.slice(0, 3).forEach(h  => { try { top3  += BigInt(h.value||'0'); } catch {} });
@@ -1076,9 +1098,10 @@ function renderResults(a) {
   let holdersHTML = '';
   if (holders && holders.length > 0 && supply && supply > 0n) {
     holdersHTML = holders.slice(0, 15).map((h, i) => {
-      const ha = h.address?.hash || '';
+      // h.address can be {hash: "..."} or just string
+      const ha = ((h.address?.hash || h.address) || '').toString();
       const isPool = POOL_ADDRS.has(ha.toLowerCase());
-      const isCtx  = h.address?.is_contract;
+      const isCtx  = h.address?.is_contract || (typeof h.address === 'object' && h.address?.is_contract);
       let pct = 0;
       try { pct = Number((BigInt(h.value||'0') * 10000n) / supply) / 100; } catch {}
       const badgeCls = isPool ? 'bp' : isCtx ? 'bc' : 'be';
@@ -1514,6 +1537,12 @@ function showErr(msg) {
   document.getElementById('prog').style.display = 'none';
   document.getElementById('scanBtn').disabled = false;
 }
+
+// Global error handler for unhandled promise rejections
+window.addEventListener('unhandledrejection', event => {
+  console.log('[v0] Unhandled Promise rejection:', event.reason);
+  showErr('Error: ' + (event.reason?.message || event.reason || 'Unknown error'));
+});
 
 document.getElementById('addrIn').addEventListener('keydown', e => {
   if (e.key === 'Enter') startScan();
