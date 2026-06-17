@@ -966,7 +966,7 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   // ─────────────────────────────────────────────
   // STEP 7: MARKET DATA
   // ─────────────────────────────────────────────
-  const pair = pairs?.[0];
+  // pair sudah di-declare di awal computeScore (line 763)
   if (!pair) {
     add(R, 'Tidak ada pair trading di DexScreener (Base)', 2);
   } else {
@@ -990,7 +990,7 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     }
   }
 
-  // ─────────────────────────────────────────────
+  // ────────���────────────────────────────────────
   // STEP 8: HOLDER CONCENTRATION
   // ─────────────────────────────────────────────
   let concData = null;
@@ -1211,7 +1211,7 @@ function renderResults(a) {
       lockDesc = `Hanya ${lpLock.lockedPct.toFixed(1)}% LP terkunci via ${lpLock.lockerNames.join(', ')}. Sisa ${(100-lpLock.lockedPct).toFixed(1)}% bisa di-remove oleh deployer.`;
     } else if (lpLock.burnedPct >= 80) {
       lockIcon = '🔥'; lockColor = 'var(--low)';
-      lockTitle = `LP BURNED ${lpLock.burnedPct.toFixed(1)}% — Permanen`;
+      lockTitle = `LP BURNED ${lpLock.burnedPct.toFixed(1)}% ��� Permanen`;
       lockDesc = `${lpLock.burnedPct.toFixed(1)}% LP token sudah di-burn ke dead address. Liquidity ini permanen dan tidak bisa di-remove.`;
     } else if (lpLock.burnedPct > 0) {
       lockIcon = '⚠️'; lockColor = 'var(--yellow)';
