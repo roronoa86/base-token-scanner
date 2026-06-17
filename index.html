@@ -773,11 +773,14 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   const clankerFactoryName = CLANKER_FACTORIES[creatorHash] || null;
 
   const hasClankerContext     = allData?.context?.toLowerCase?.().includes('clanker') || false;
+  const isFarcasterClanker    = allData?.context?.toLowerCase?.().includes('farcaster') || 
+                               (allData?.platform?.toLowerCase?.().includes('farcaster')) || false;
   const hasAllData            = allData !== null;
   // isVerified function exists if we got ANY response (null means not callable, true/false means callable)
   const hasIsVerifiedFunction = rpcData?.isVerified !== null && rpcData?.isVerified !== undefined;
 
   let isClankerAbi = false;
+  let hasValidAbi = false;
   if (contractInfo?.abi) {
     try {
       let abiStr = '';
@@ -793,12 +796,14 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
         abiStr = JSON.stringify(contractInfo.abi).toLowerCase();
       }
       isClankerAbi = abiStr.includes('alldata') && abiStr.includes('originaladmin');
+      // Track if ABI has actual content (vs empty/placeholder)
+      hasValidAbi = abiStr.length > 100;
     } catch(e) {
       console.log('[v0] ABI parse error:', e.message);
     }
   }
 
-  // Token = Clanker if ANY layer detects it
+  // Token = Clanker if ANY layer detects it (all versions are valid Clanker)
   const isClanker = isCreatedViaClankerFactory || hasAllData || hasIsVerifiedFunction || hasClankerContext || isClankerAbi;
 
   console.log('[v0] Clanker Detection:', {
@@ -845,8 +850,11 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     // isVerified = null  → RPC timeout or non-Clanker token
     if (rpcData.isVerified === true) {
       add(G, 'isVerified() = TRUE — Token resmi clanker.world ✓ LP di Uniswap v4 pool Clanker (tidak bisa di-rug)', 0);
+    } else if (rpcData.isVerified === false && isFarcasterClanker) {
+      // Farcaster miniapp Clanker tokens also have isVerified=FALSE but are official Clanker deployments
+      add(G, 'isVerified() = FALSE (Farcaster Clanker miniapp) ✓ LP management via Clanker protocol', 0);
     } else if (rpcData.isVerified === false) {
-      add(Y, 'isVerified() = FALSE — Deploy via 3rd-party app (Bankr/WarpCast). Bukan dari clanker.world langsung. Periksa LP.', 1);
+      add(Y, 'isVerified() = FALSE — Deploy via 3rd-party app (Bankr/WarpCast/Doppler). Bukan dari clanker.world langsung. Periksa LP.', 1);
     } else if (hasIsVerifiedFunction) {
       // isVerified function exists but returned error/timeout—still Clanker but need manual check
       add(I, 'isVerified() ada di contract tapi timeout/error — likely token baru atau permasalahan RPC');
@@ -874,8 +882,9 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
   // ─────────────────────────────────────────────
   const lpLock = parseLPLock(goplus);
 
-  if (isClanker && rpcData.isVerified === true) {
+  if (isClanker && (rpcData.isVerified === true || isFarcasterClanker)) {
     // LP is protocol-managed by Clanker inside Uniswap v4 PoolManager
+    // Both official clanker.world (isVerified=true) and Farcaster miniapp (isFarcasterClanker) have protocol-managed LP
     // Admin has NO power to remove LP — it's locked at protocol level
     add(G, 'LP STATUS: LP ada di Uniswap v4 Pool resmi Clanker — tidak bisa di-rug oleh admin ✓');
   } else {
@@ -959,8 +968,15 @@ function computeScore({ addr, rpcData, allData, goplus, pairs, tokenInfo,
     const hits = DANGER_FN_LIST.filter(fn => abiStr.includes(`"${fn}"`));
     if (hits.length > 0) add(Y, `Fungsi berbahaya di ABI: ${hits.join(', ')}`, hits.length);
     else add(G, 'Tidak ada fungsi berbahaya di ABI ✓');
+  } else if (isClanker) {
+    // Clanker tokens: ABI availability separate from source code verification
+    if (hasValidAbi) {
+      add(G, 'ABI tersedia (Clanker) — dapat di-scan fungsi berbahaya ✓');
+    } else {
+      add(I, 'ABI tidak fully tersedia di Basescan — tapi Clanker factory bytecode standard');
+    }
   } else {
-    add(Y, 'ABI tidak tersedia — tidak bisa scan fungsi berbahaya');
+    add(Y, 'ABI tidak tersedia — tidak bisa scan fungsi berbahaya', 1);
   }
 
   // ─────────────────────────────────────────────
@@ -1470,7 +1486,7 @@ function renderResults(a) {
     ${mkFlags(flags.green,  'green',  '✓')}
     ${mkFlags(flags.info,   'blue',   'ℹ')}
     ${flags.red.length+flags.yellow.length+flags.green.length+flags.info.length===0
-      ? '<div class="flag yellow"><span class="f-ic">⚠️</span><span>Tidak ada data cukup untuk analisis flag</span></div>' : ''}
+      ? '<div class="flag yellow"><span class="f-ic">⚠���</span><span>Tidak ada data cukup untuk analisis flag</span></div>' : ''}
   </div>
 
   <div class="sec">⑨ Panduan & Cek Manual</div>
